@@ -33,7 +33,7 @@ public static class EvidenceMatcher
     private static string? ExtractExeName(string? text)
     {
         var path=ExtractExePath(text);
-        return path is null?null:System.IO.Path.GetFileName(path);
+        if(path is null)return null;var separator=path.LastIndexOfAny(['\\','/']);return separator<0?path:path[(separator+1)..];
     }
     private static string? ExtractExeFolder(string? text)
     {
