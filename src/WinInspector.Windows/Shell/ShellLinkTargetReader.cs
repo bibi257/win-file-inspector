@@ -9,11 +9,11 @@ internal interface IShellLinkW
 }
 public sealed class ShellLinkTargetReader
 {
- public static string? TryReadTarget(string lnkPath)
+ public static string? TryReadTarget(string lnkPath,Action? onFailure=null)
  {
   object? instance=null;
-  try{instance=new ShellLinkCom();var shell=(IShellLinkW)instance;((IPersistFile)instance).Load(lnkPath,0);var path=new System.Text.StringBuilder(32768);shell.GetPath(path,path.Capacity,IntPtr.Zero,4);return path.Length==0?null:path.ToString();}
-  catch{return null;}finally{if(instance is not null&&Marshal.IsComObject(instance))Marshal.ReleaseComObject(instance);}
+  try{instance=new ShellLinkCom();var shell=(IShellLinkW)instance;((IPersistFile)instance).Load(lnkPath,0);var path=new System.Text.StringBuilder(32768);shell.GetPath(path,path.Capacity,IntPtr.Zero,0);return path.Length==0?null:path.ToString();}
+  catch{onFailure?.Invoke();return null;}finally{if(instance is not null&&Marshal.IsComObject(instance))Marshal.ReleaseComObject(instance);}
  }
 }
 [ComImport,InterfaceType(ComInterfaceType.InterfaceIsIUnknown),Guid("0000010B-0000-0000-C000-000000000046")]

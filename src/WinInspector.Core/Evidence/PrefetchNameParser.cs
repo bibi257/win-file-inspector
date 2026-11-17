@@ -7,7 +7,7 @@ public static partial class PrefetchNameParser
     public static string? Parse(string fileName)
     {
         var match = NameRegex().Match(Path.GetFileName(fileName)); if (!match.Success) return null;
-        var name = match.Groups[1].Value + ".exe";
+        var name = match.Groups[1].Value;
         return GenericRegex().IsMatch(name) || name.Equals("msiexec.exe", StringComparison.OrdinalIgnoreCase) || name.Equals("update.exe", StringComparison.OrdinalIgnoreCase) || name.Equals("setup.exe", StringComparison.OrdinalIgnoreCase) ? null : name;
     }
 }

@@ -22,13 +22,13 @@ public static class SettingsComposition
         var output = Has("OutputDir") ? cli.OutputDir : Get("OutputDir", cli.OutputDir);
         var days = Has("UnusedDays") ? cli.UnusedDays : Get("UnusedDays", cli.UnusedDays);
         var depth = Has("FolderDepth") ? cli.FolderDepth : Get("FolderDepth", cli.FolderDepth);
-        return Validate(cli with { Mode = mode, Targets = targets, Excludes = excludes, OutputDir = output, UnusedDays = days, FolderDepth = depth });
+        var raw = Has("IncludeRawLastAccess") ? cli.IncludeRawLastAccess : Get("IncludeRawLastAccess", cli.IncludeRawLastAccess);
+        var removable = Has("IncludeRemovable") ? cli.IncludeRemovable : Get("IncludeRemovable", cli.IncludeRemovable);
+        return Validate(cli with { Mode = mode, Targets = targets, Excludes = excludes, OutputDir = output, UnusedDays = days, FolderDepth = depth, IncludeRawLastAccess = raw, IncludeRemovable = removable });
     }
     private static CliOptions Validate(CliOptions value)
     {
         if(value.Mode is not ("Files" or "Apps" or "All")) throw new ArgumentException("パラメーター 'Mode' の引数を検証できません。引数 \""+value.Mode+"\" は ValidateSet 属性で指定されたセット \"Files,Apps,All\" に属していません。検証セットで指定された引数を指定してから、コマンドを再試行してください。");
-        if(value.UnusedDays<0)throw new ArgumentException("引数が 0 より小さいため、UnusedDays の値を検証できません。");
-        if(value.FolderDepth<0)throw new ArgumentException("引数が 0 より小さいため、FolderDepth の値を検証できません。");
         if(value.Targets.Any(string.IsNullOrWhiteSpace)||value.Excludes.Any(string.IsNullOrWhiteSpace))throw new ArgumentException("Target と Exclude に空の値は指定できません。");
         return value;
     }

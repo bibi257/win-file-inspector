@@ -9,7 +9,7 @@ public sealed class AppxPackageReader
   foreach(var package in manager.FindPackagesForUser(string.Empty))
   {
    var id=package.Id;
-   yield return new AppxRecord(id.Name,id.Version.ToString()??string.Empty,id.Publisher,package.InstalledLocation?.Path??string.Empty,package.SignatureKind.ToString(),package.IsFramework,false,package.IsResourcePackage,id.FamilyName);
+   yield return new AppxRecord(id.Name,$"{id.Version.Major}.{id.Version.Minor}.{id.Version.Build}.{id.Version.Revision}",id.Publisher,package.InstalledLocation?.Path??string.Empty,package.SignatureKind.ToString(),package.IsFramework,false,package.IsResourcePackage,id.FamilyName);
   }
  }
 }

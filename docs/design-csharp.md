@@ -24,8 +24,8 @@ PowerShell 版の該当箇所と、C# 版での扱いを対応させます。Cod
 | 1 | DWORD を符号なし 32bit に正規化する。`[uint32]([int64]$v -band 0xffffffffL)`（EnvironmentProbe.ps1:12） | `unchecked((uint)(long)v)` で統一。NtfsDisableLastAccessUpdate と Start_TrackProgs の両方に適用（9章の差分参照） |
 | 2 | UserAssist の既知フォルダ GUID を実パスに変換する（UsageEvidence.ps1:16-17） | 7 件の固定マップ（9章の表）。値が空なら GUID のまま残す |
 | 3 | Prefetch の汎用名を除外する（UsageEvidence.ps1:33） | `^(?:uninstall\|unins\|install).*\.exe$` と `msiexec.exe`、`update.exe`、`setup.exe` を除外。大文字小文字を区別しない |
-| 4 | CountOnly の集約（Classifier.ps1:13、Invoke-WinInspector.ps1:34） | 回数のみの証拠を「判定不能」にし、最終時刻があれば CountOnly を立てない |
-| 5 | 過剰一致の除外（UsageEvidence.ps1:28、AppInventory.ps1:33） | 証拠照合で `C:\`、`C:\Program Files`、`C:\Program Files (x86)`、`C:\Windows`、`C:\Windows\System32` を InstallLocation や exe フォルダとして使わない。サイズ計測でも同じ 3 つを除外し、同一 InstallLocation が 2 件以上ある場合も計測しない |
+| 4 | CountOnly の集約（Classifier.ps1:13、Invoke-WinInspector.ps1:34） | UserAssist 一致で RunCount > 0 があれば時刻の有無にかかわらず CountOnly を立て、最優先で「判定不能」にする |
+| 5 | 過剰一致の除外（UsageEvidence.ps1:28、AppInventory.ps1:33） | 証拠照合で `C:\`、`C:\Program Files`、`C:\Program Files (x86)`、`C:\Windows`、`C:\Windows\System32` を InstallLocation や exe フォルダとして使わない。サイズ計測ではルート、Program Files、Program Files (x86) の 3 つを除外し、同一 InstallLocation が 2 件以上ある場合も計測しない |
 | 6 | 候補の並び順（Invoke-WinInspector.ps1:39） | 区分（A→B）→ サイズ不明を後ろ → サイズ降順。安定ソートを使い、同値は入力順 |
 | 7 | CSV 数式対策（LogWriter.ps1:4） | 保護列のみ。先頭が `= + - @ TAB CR LF` のとき `'` を付けてから二重引用で囲む |
 | 8 | junction・ネットワーク経路の拒否（FileScanner.ps1:19-21、AppInventory.ps1:20-23） | リパースポイントは中に入らず 1 行のみ記録。UNC・ネットワークドライブは拒否。InstallLocation の祖先にリパースポイントがあれば計測しない |
@@ -288,7 +288,7 @@ dotnet publish src/WinInspector.Cli -c Release -r win-x64 --self-contained true 
    7. Source が Appx で、`SignatureKind=System`、`IsFramework`、`NonRemovable`、`IsResourcePackage` のいずれか
    
    1 件でもあれば `対象外`。
-2. `CountOnly`（回数の証拠のみ）なら `判定不能`（理由：`実行回数のみの記録あり`）。
+2. `CountOnly`（UserAssist の一致で回数が 1 以上）なら、最終時刻の有無にかかわらず `判定不能`（理由：`実行回数のみの記録あり`）。これは `Classifier.ps1` の最優先判定に合わせる。
 3. 最終実行時刻があれば、`時刻 <= now − UnusedDays` で `候補A`、そうでなければ `判定不能`（`使用中（最終実行が閾値以内）`）。
 4. 実行回数が 1 以上なら `判定不能`（`証拠あり・時刻なし（実行回数の記録のみ）`）。
 5. 追跡が無効または不明なら `判定不能`（`アプリ起動追跡が無効または不明`）。
@@ -332,7 +332,7 @@ PS 版 AppInventory.ps1:33 の判定を次のとおりに移植します。
 
 集約：
 - `times` は時刻がある一致のうち最大（降順の先頭）。その Source を `LastRunSource` にする（時刻がなければ `UserAssist`）。
-- `CountOnly` は、UserAssist の一致で `RunCount > 0` かつ時刻なしが 1 件でもあれば true。
+- `CountOnly` は、時刻の有無にかかわらず UserAssist の一致で `RunCount > 0` が 1 件でもあれば true。
 - `RunCount` は UserAssist の一致の最大値（一致がなければ null）。
 - `Method` は `found` の先頭。
 

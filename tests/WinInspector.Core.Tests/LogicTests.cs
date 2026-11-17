@@ -1,4 +1,5 @@
 using WinInspector.Core.Apps;using WinInspector.Core.Evidence;using WinInspector.Core.Output;using WinInspector.Core.Settings;using Xunit;
+using WinInspector.Core.Scan;
 namespace WinInspector.Core.Tests;
 public class LogicTests
 {
@@ -7,8 +8,15 @@ public class LogicTests
  [Fact] public void FormulaCellProtected(){Assert.Equal("\"'=1+1\"",CsvWriter.Cell("=1+1",true));}
  [Fact] public void NegativeEstimateIsMissing(){Assert.Null(InstallSizePolicy.EstimatedBytes(-1));}
  [Fact] public void UnknownUserAssistData(){Assert.Null(UserAssistDecoder.Parse(new byte[20]));}
- [Fact] public void PrefetchFiltersGenericNames(){Assert.Null(PrefetchNameParser.Parse("setup-12345678.pf"));Assert.Equal("editor.exe",PrefetchNameParser.Parse("editor-12345678.pf"));}
+ [Fact] public void PrefetchFiltersGenericNames(){Assert.Null(PrefetchNameParser.Parse("setup-12345678.pf"));Assert.Equal("CHROME.EXE",PrefetchNameParser.Parse("CHROME.EXE-8A1B2C3D.pf"));Assert.Equal("chrome.exe",PrefetchNameParser.Parse("CHROME.EXE-8A1B2C3D.pf")?.ToLowerInvariant());}
+ [Fact] public void ExclusionFindsNamePatternsAndAggregatesReasons(){var app=new AppRecord("Registry","Microsoft Edge",SystemComponent:1,ParentKeyName:"parent");var text=ExclusionRules.Reason(app,[new System.Text.RegularExpressions.Regex("Edge")]);Assert.Equal("SystemComponent=1; ParentKeyNameあり; 名前パターン: Edge",text);}
+ [Fact] public void ExeExtractionSupportsDisplayIconAndArguments(){var app=new AppRecord("Registry","Browser",DisplayIcon:"C:\\Apps\\chrome.exe,0",UninstallString:"\"C:\\Apps\\unins.exe\" /SILENT");var match=EvidenceMatcher.Match(app,[new("UserAssist",@"C:\Apps\\visited.lnk",null,1,DateTime.UnixEpoch)]);Assert.Equal("IconOrUninstaller",match.Method);}
  [Fact] public void KnownFolderMapHasSevenEntries(){Assert.Equal(7,KnownFolderMap.KnownGuids.Count);Assert.Equal("{UNKNOWN}\\x",new KnownFolderMap().Resolve("{UNKNOWN}\\x"));}
  [Fact] public void PsdReaderAcceptsLimitedConfig(){var r=PsdReader.Parse("@{ Mode='Files'; Target=@('C:\\Temp','D:\\Data'); UnusedDays=20; IncludeRawLastAccess=$false }");Assert.Null(r.Warning);Assert.Equal("Files",r.Values["Mode"]);Assert.Equal(20,r.Values["UnusedDays"]);}
+ [Fact] public void CliParsesOptionsAndAcceptsNegativeThresholds(){var x=WinInspector.Core.Cli.CliParser.Parse(["-UnusedDays","-3","-FolderDepth","-1","-IncludeRawLastAccess","-IncludeRemovable","-LowerPriority"]);Assert.Equal(-3,x.UnusedDays);Assert.Equal(-1,x.FolderDepth);Assert.True(x.IncludeRawLastAccess);Assert.True(x.IncludeRemovable);Assert.True(x.LowerPriority);}
+ [Fact] public void CliRejectsInvalidNumericInputAsArgumentError(){Assert.Throws<ArgumentException>(()=>WinInspector.Core.Cli.CliParser.Parse(["-UnusedDays","bad"]));}
  [Fact] public void SummaryKeepsExeImplementationRows(){var s=SummaryBuilder.Build(new(DateTime.UnixEpoch,"Files",[],"out",false,"user","setting ()","tracking / ","UTC",0,0,TimeSpan.Zero,0));Assert.Contains("実行形式: WinInspector.exe",s);Assert.Contains("言語モード: 該当なし（exe 版）",s);}
+ [Fact] public void SummaryListsCandidatesAndKeepsStateBeforeConstraints(){var s=SummaryBuilder.Build(new(DateTime.UnixEpoch,"Apps",[],"out",false,"user","setting ()","tracking / ","UTC",0,0,TimeSpan.Zero,0,false,0,"取得済み",[("App",12L)],[]));Assert.Contains("候補A 上位: App (12 bytes)",s);Assert.True(s.IndexOf("状態:",StringComparison.Ordinal)<s.IndexOf("制約:",StringComparison.Ordinal));}
+ [Fact] public void ScannerContinuesAfterAnItemFailureAndKeepsFolderTotals(){var fs=new FakeFileSystem();var result=new FileScanner(fs).Scan(new(["C:\\root"],[],3));Assert.Contains(result.Files,x=>x.Path.EndsWith("ok.txt",StringComparison.Ordinal));Assert.Contains(result.Errors,x=>x.Contains("bad.txt",StringComparison.Ordinal));Assert.Equal(4,result.Folders.Single().TotalSizeBytes);}
+ private sealed class FakeFileSystem:IFileSystem{public IEnumerable<FsEntry> Enumerate(string dir){if(dir=="C:\\root"){yield return new("C:\\root\\ok.txt","ok.txt",".txt",0,false,4,DateTime.UnixEpoch,DateTime.UnixEpoch,DateTime.UnixEpoch);yield return new("C:\\root\\bad.txt","bad.txt",".txt",0,false,0,DateTime.UnixEpoch,DateTime.UnixEpoch,DateTime.UnixEpoch);}else throw new IOException("unexpected");}public FileAttributes? TryGetAttributes(string path)=>null;public bool DirectoryExists(string path)=>true;public bool FileExists(string path)=>true;}
 }
