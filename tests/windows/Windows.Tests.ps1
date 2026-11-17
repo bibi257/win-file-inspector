@@ -3,7 +3,7 @@
     foreach($name in 'EnvironmentProbe','FileScanner','LogWriter'){. (Join-Path $root "src/lib/$name.ps1")}
     $fixture=Join-Path $TestDrive 'WinInspectorFixture';[IO.Directory]::CreateDirectory($fixture)|Out-Null
     # Fixtures are intentionally generated only by tests.
-    [IO.File]::WriteAllText((Join-Path $fixture 'sample_日本語,=".txt'),'fixture')
+    [IO.File]::WriteAllText((Join-Path $fixture 'sample_日本語,=.txt'),'fixture')
     [IO.Directory]::CreateDirectory((Join-Path $fixture 'nested'))|Out-Null
     [IO.File]::WriteAllText((Join-Path $fixture 'nested/child.txt'),'fixture')
 }
