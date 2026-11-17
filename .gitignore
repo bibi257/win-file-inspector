@@ -1,0 +1,9 @@
+# Runtime logs and personal data
+*.csv
+*.txt
+!/docs/**/*.txt
+Logs/
+**/Logs/
+config/config.psd1
+TestResults/
+*.log
