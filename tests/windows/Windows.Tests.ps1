@@ -8,6 +8,9 @@
     [IO.File]::WriteAllText((Join-Path $fixture 'nested/child.txt'),'fixture')
 }
 Describe 'Windows runner smoke foundation' {
+    It 'keeps a Windows drive root separator' -Skip:(!$IsWindows) {
+        (ConvertTo-InspectorPath 'C:\') | Should -Be 'C:\'
+    }
     It 'runs file enumeration against a small test fixture' -Skip:(!$IsWindows) {
         $seen=[Collections.Generic.List[string]]::new()
         $before=@(Get-ChildItem $fixture -File -Recurse | ForEach-Object {[pscustomobject]@{Path=$_.FullName;Creation=$_.CreationTimeUtc;Write=$_.LastWriteTimeUtc;Access=$_.LastAccessTimeUtc}})

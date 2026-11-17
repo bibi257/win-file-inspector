@@ -35,7 +35,7 @@ Describe 'Pure logic' {
         $app.DisplayIcon='/opt/app/tool.exe';$r=Resolve-AppEvidence $app @([pscustomobject]@{Path='TOOL.EXE-12345678.pf';ExeName='TOOL.EXE';Source='Prefetch';LastRunTime=$now;RunCount=$null});$r.Method | Should -Be 'PrefetchName'
         $newer=$now.AddDays(2);$r=Resolve-AppEvidence $app @([pscustomobject]@{Path='/opt/app/tool.exe';Source='UserAssist';LastRunTime=$now;RunCount=2},[pscustomobject]@{Path='TOOL.EXE-12345678.pf';ExeName='TOOL.EXE';Source='Prefetch';LastRunTime=$newer;RunCount=$null});$r.Evidence.LastRunTime | Should -Be $newer
         $countOnly=[pscustomobject]@{Path='/opt/app/tool.exe';Source='UserAssist';LastRunTime=$null;RunCount=8};$r=Resolve-AppEvidence $app @($countOnly,[pscustomobject]@{Path='/opt/app/tool.exe';Source='UserAssist';LastRunTime=$now;RunCount=2});$r.Evidence.CountOnly | Should -BeTrue;$r.Evidence.RunCount | Should -Be 8;$r.Evidence.LastRunTime | Should -Be $now
-        (Get-AppClassification ([pscustomobject]@{Name='App';CountOnly=$r.Evidence.CountOnly;RunCount=$r.Evidence.RunCount;LastRunTime=$r.Evidence.LastRunTime}) $now 365 $true @()).ExcludedReason | Should -Match '実行回数の記録のみ'
+        (Get-AppClassification ([pscustomobject]@{Name='App';CountOnly=$r.Evidence.CountOnly;RunCount=$r.Evidence.RunCount;LastRunTime=$r.Evidence.LastRunTime}) $now 365 $true @()).ExcludedReason | Should -Match '実行回数のみの記録あり'
         $msi=[pscustomobject]@{InstallLocation='';DisplayIcon='';UninstallString='MsiExec.exe /X{ABC}';PackageFamilyName=''};$r=Resolve-AppEvidence $msi @([pscustomobject]@{Path='MSIEXEC.EXE-12345678.pf';ExeName='msiexec.exe';Source='Prefetch';LastRunTime=$now});$r | Should -BeNullOrEmpty
     }
     It 'aggregates nested folder totals' {
@@ -58,14 +58,17 @@ Describe 'Pure logic' {
         $app.RunCount=0;(Get-AppClassification $app (Get-Date) 365 $true @()).Status | Should -Be '判定不能'
     }
     It 'normalizes concrete paths and checks containment' { $base=Join-Path ([IO.Path]::GetTempPath()) 'folder';(ConvertTo-NormalizedPath (Join-Path $base 'x/../y')) | Should -Be (Join-Path $base 'y');(Test-PathWithin 'C:\a\b' 'C:\a') | Should -BeTrue }
-    It 'keeps a drive root separator and applies drive-root exclusions' {
+    It 'keeps the platform root separator and applies drive-root exclusions' {
         $entry=Get-Content (Join-Path $root 'src/Invoke-WinInspector.ps1') -Raw
         $entry | Should -Match "\^\[A-Za-z\]:\\\\\?\$"
         $entry | Should -Match '\$Recycle\.Bin'
         $entry | Should -Match 'System Volume Information'
         $entry | Should -Match 'Windows\\WinSxS'
-        ('C:\' -match '^[A-Za-z]:\\?$') | Should -BeTrue
         (ConvertTo-InspectorPath ([IO.Path]::GetPathRoot([IO.Path]::GetFullPath('/')))) | Should -Be ([IO.Path]::GetPathRoot([IO.Path]::GetFullPath('/')))
+    }
+    It 'rejects a symbolic link used as a scan target root' {
+        $base=Join-Path $TestDrive 'root-link';$target=Join-Path $base 'target';$link=Join-Path $base 'link';[IO.Directory]::CreateDirectory($target)|Out-Null
+        try { New-Item -ItemType SymbolicLink -Path $link -Target $target -ErrorAction Stop | Out-Null;$errors=[Collections.Generic.List[object]]::new();$result=Invoke-FileScan -Targets @($link) -Exclude @() -FolderDepth 2 -LastAccessSetting $null -OnFile {} -OnFolder {} -OnError {param($p,$o,$t,$m)$errors.Add([pscustomobject]@{Type=$t})} -OnProgress {}; $result.FileCount | Should -Be 0;$result.FolderCount | Should -Be 0;$errors[0].Type | Should -Be 'ReparsePointRejected' } finally { Remove-Item $base -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'finds a symlink among the path ancestors' {
         . (Join-Path $root 'src/lib/AppInventory.ps1')
@@ -78,6 +81,13 @@ Describe 'Pure logic' {
 }
 
 Describe 'Entry point end to end' {
+    It 'handles zero launcher arguments and removes its temporary argument file' {
+        $repo=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path;$launcher=Join-Path $repo 'tools/Start-Elevated.ps1';$harness=Join-Path $TestDrive 'launcher-harness.ps1'
+        $marker=Join-Path $TestDrive 'temp-was-created';$tempRoot=[IO.Path]::GetTempPath();$content="`$env:TEMP='$tempRoot';function Start-Process { param(`$FilePath,`$Verb,[switch]`$Wait,[switch]`$PassThru,`$ArgumentList) `$p=(`$ArgumentList -split '-ArgumentsFile ')[1].Trim().Trim([char]34);if(Test-Path -LiteralPath `$p){[IO.File]::WriteAllText('$marker','created')};[pscustomobject]@{ExitCode=17} }`n& '$launcher'"
+        [IO.File]::WriteAllText($harness,$content,[Text.UTF8Encoding]::new($true));$before=@(Get-ChildItem $tempRoot -Filter 'wininspector-args-*.txt' -ErrorAction SilentlyContinue | ForEach-Object FullName)
+        $pwsh=(Get-Command pwsh).Source;& $pwsh -NoLogo -NoProfile -File $harness
+        Test-Path $marker | Should -BeTrue;$after=@(Get-ChildItem $tempRoot -Filter 'wininspector-args-*.txt' -ErrorAction SilentlyContinue | ForEach-Object FullName);Compare-Object $before $after | Should -BeNullOrEmpty
+    }
     It 'writes file, folder, error and summary outputs on Linux' {
         $repo=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
         $fixture=Join-Path $TestDrive 'e2e';$out=Join-Path $TestDrive 'out'
