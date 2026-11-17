@@ -1,7 +1,7 @@
 ﻿function ConvertTo-CsvCell {
     param([object]$Value,[switch]$ProtectFormula)
     if($null -eq $Value){$s=''}elseif($Value -is [datetime]){$s=$Value.ToString('yyyy-MM-dd HH:mm:ss')}else{$s=[string]$Value}
-    if($ProtectFormula -and $s -match '^[=+@-]'){$s="'"+$s};'"'+$s.Replace('"','""')+'"'
+    if($ProtectFormula -and $s -match '^(?:[=+@-]|\t|\r|\n)'){$s="'"+$s};'"'+$s.Replace('"','""')+'"'
 }
 function Write-InspectorCsvRow {
     param([IO.StreamWriter]$Writer,[string[]]$Columns,[object]$Row,[string[]]$ProtectColumns=@())
