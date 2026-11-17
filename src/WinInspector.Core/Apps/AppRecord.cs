@@ -1,0 +1,2 @@
+namespace WinInspector.Core.Apps;
+public sealed record AppRecord(string Source,string Name,string? Version=null,string? Publisher=null,string? InstallDate=null,long? EstimatedSizeKb=null,string? InstallLocation=null,string? DisplayIcon=null,string? UninstallString=null,string? SignatureKind=null,bool IsFramework=false,bool NonRemovable=false,bool IsResourcePackage=false,string? PackageFamilyName=null,object? SystemComponent=null,string? ParentKeyName=null,string? ReleaseType=null);

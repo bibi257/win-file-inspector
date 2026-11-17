@@ -51,3 +51,7 @@ ZIP で取得した場合、展開前に ZIP のプロパティで「ブロッ�
 ## 開発・検証
 
 PowerShell 7 と Pester 5 で `Invoke-Pester ./tests/unit,./tests/static`、Windows では `Invoke-Pester ./tests/windows` を実行します。実機での狭い範囲の確認手順は [verification checklist](docs/verification-checklist.md) を参照してください。CSV をコミットしない pre-commit フックの例は `tools/hooks/pre-commit.sample` です。
+
+## C# exe 版
+
+C# 版は .NET 10 の self-contained 単一 `WinInspector.exe` として配布します。CI の Windows artifact から取得でき、PowerShell や .NET Runtime の事前導入は不要です。ZIP 取得後はファイルのプロパティで「ブロックの解除」を選び、SmartScreen の確認画面では発行元を確認して実行を許可してください。exe 版の実機確認手順は [verification checklist](docs/verification-checklist.md) を参照してください。

@@ -24,3 +24,7 @@ Start-Inspector.cmd -Mode Files -Target "C:\Users\<user>\AppData\Local\Temp\WinI
 Apps モードを別途確認するときは、Windows の「設定 > アプリ > インストールされているアプリ」と件数・名称がおおむね一致するかだけを確認します。PowerShell 7 から Appx を取得できない場合は summary/errors に示され、アプリ情報を推測で補完しないことを確認します。
 
 結果記録: 日付 / Windows 11 ビルド / PowerShell 7 バージョン / Files OK・NGと差分 / Apps OK・NGと差分 / オフライン実行 OK・NG。ログファイル自体は共有しないでください。
+
+## C# exe 版
+
+CI artifact の `WinInspector.exe` を取得し、プロパティの「ブロックの解除」を実施してから、PowerShell 版と同じ小さな fixture を `-Mode Files -Target <fixture> -OutputDir <local-output>` で走査します。CSV の列順・BOM/CRLF、summary の行順、走査件数、出力先、終了コード、実行前後のファイル日時を確認してください。機内モードでも完走することを確認します。ログは共有せず、結果と差分だけ記録してください。

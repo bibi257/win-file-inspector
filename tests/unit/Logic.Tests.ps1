@@ -9,6 +9,7 @@ Describe 'Pure logic' {
         $r=ConvertFrom-UserAssistData $bytes;$r.RunCount | Should -Be 7;$r.LastRunTime.Year | Should -Be 2020
     }
     It 'converts FILETIME' { (ConvertFrom-FileTimeValue ([datetime]::new(2024,1,1).ToFileTime())).Year | Should -Be 2024 }
+    It 'normalizes Start_TrackProgs as unsigned DWORD' { (Get-AppTrackingSetting -Value -2147483648).Enabled | Should -BeTrue }
     It 'interprets last access settings' {
         (Get-LastAccessSetting 0).Enabled | Should -BeTrue
         (Get-LastAccessSetting 1).Enabled | Should -BeFalse
@@ -70,6 +71,23 @@ Describe 'Pure logic' {
         $base=Join-Path $TestDrive 'root-link';$target=Join-Path $base 'target';$link=Join-Path $base 'link';[IO.Directory]::CreateDirectory($target)|Out-Null
         try { New-Item -ItemType SymbolicLink -Path $link -Target $target -ErrorAction Stop | Out-Null;$errors=[Collections.Generic.List[object]]::new();$result=Invoke-FileScan -Targets @($link) -Exclude @() -FolderDepth 2 -LastAccessSetting $null -OnFile {} -OnFolder {} -OnError {param($p,$o,$t,$m)$errors.Add([pscustomobject]@{Type=$t})} -OnProgress {}; $result.FileCount | Should -Be 0;$result.FolderCount | Should -Be 0;$errors[0].Type | Should -Be 'ReparsePointRejected' } finally { Remove-Item $base -Recurse -Force -ErrorAction SilentlyContinue }
     }
+    It 'treats a negative uninstall EstimatedSize as unset' {
+        . (Join-Path $root 'src/lib/AppInventory.ps1')
+        $fake=[pscustomobject]@{EstimatedSize=-12};$fake|Add-Member ScriptMethod GetValue {param($name,$default) if($name -eq 'EstimatedSize'){$this.EstimatedSize}else{$default}}
+        (Convert-UninstallKey $fake 'HKCU').EstimatedSize | Should -BeNullOrEmpty
+    }
+    It 'treats a nonnumeric uninstall EstimatedSize as unset and continues' {
+        . (Join-Path $root 'src/lib/AppInventory.ps1')
+        $fake=[pscustomobject]@{EstimatedSize='not-a-number'};$fake|Add-Member ScriptMethod GetValue {param($name,$default) if($name -eq 'EstimatedSize'){$this.EstimatedSize}else{$default}}
+        (Convert-UninstallKey $fake 'HKCU').EstimatedSize | Should -BeNullOrEmpty
+    }
+    It 'returns unknown folder size and records an error when the install root cannot be enumerated' {
+        . (Join-Path $root 'src/lib/AppInventory.ps1')
+        $errors=[Collections.Generic.List[object]]::new()
+        $size=Measure-InstallFolder (Join-Path $TestDrive 'missing-install-root') {param($p,$o,$t,$m)$errors.Add([pscustomobject]@{Operation=$o})}
+        $size | Should -BeNullOrEmpty
+        $errors.Count | Should -Be 1
+    }
     It 'finds a symlink among the path ancestors' {
         . (Join-Path $root 'src/lib/AppInventory.ps1')
         $base=Join-Path $TestDrive 'reparse';$target=Join-Path $base 'target';$link=Join-Path $base 'link';[IO.Directory]::CreateDirectory($target)|Out-Null
@@ -110,6 +128,13 @@ Describe 'Entry point end to end' {
         $summary=Get-Content (Get-ChildItem $run -Filter 'summary_*'|Select-Object -First 1).FullName -Raw
         $summary | Should -Match "ファイル件数: $fileCount"
         $summary | Should -Match "フォルダ件数: $folderCount"
+    }
+    It 'excludes the entire output directory from a scan' {
+        $repo=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path;$target=Join-Path $TestDrive 'output-exclusion';$out=Join-Path $target 'out'
+        [IO.Directory]::CreateDirectory($out)|Out-Null;[IO.File]::WriteAllText((Join-Path $target 'included.txt'),'ok');[IO.File]::WriteAllText((Join-Path $out 'old-log.csv'),'private')
+        $pwsh=(Get-Command pwsh).Source;& $pwsh -NoLogo -NoProfile -File (Join-Path $repo 'src/Invoke-WinInspector.ps1') -Mode Files -Target $target -OutputDir $out 2>&1|Out-Null
+        $run=Get-ChildItem $out -Directory|Select-Object -First 1;$rows=Import-Csv (Get-ChildItem $run -Filter 'files_*.csv').FullName
+        @($rows).Count | Should -Be 1;$rows[0].Path | Should -Be (Join-Path $target 'included.txt')
     }
     It 'reports candidate summaries as not run in Files mode' {
         $repo=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path;$target=Join-Path $TestDrive 'empty';$out=Join-Path $TestDrive 'filesout';[IO.Directory]::CreateDirectory($target)|Out-Null

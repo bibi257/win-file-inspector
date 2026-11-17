@@ -1,0 +1,57 @@
+# Network APIs
+T:System.Net.Http.HttpClient
+T:System.Net.Http.HttpRequestMessage
+T:System.Net.HttpWebRequest
+T:System.Net.WebClient
+T:System.Net.WebRequest
+T:System.Net.Sockets.Socket
+T:System.Net.Sockets.TcpClient
+T:System.Net.Sockets.UdpClient
+T:System.Net.Dns
+T:System.Net.NetworkInformation.Ping
+T:System.Net.NetworkInformation.NetworkInterface
+T:System.Net.WebSockets.ClientWebSocket
+T:System.Net.Mail.SmtpClient
+# Registry writes and remote access
+M:Microsoft.Win32.RegistryKey.SetValue(System.String,System.Object)
+M:Microsoft.Win32.RegistryKey.DeleteValue(System.String)
+M:Microsoft.Win32.RegistryKey.DeleteSubKey(System.String)
+M:Microsoft.Win32.RegistryKey.DeleteSubKeyTree(System.String)
+M:Microsoft.Win32.RegistryKey.CreateSubKey(System.String)
+M:Microsoft.Win32.RegistryKey.OpenRemoteBaseKey(Microsoft.Win32.RegistryHive,System.String)
+M:Microsoft.Win32.Registry.SetValue(System.String,System.String,System.Object)
+# File and directory writes
+M:System.IO.File.Delete(System.String)
+M:System.IO.File.Move(System.String,System.String)
+M:System.IO.File.Copy(System.String,System.String)
+M:System.IO.File.Replace(System.String,System.String,System.String)
+M:System.IO.File.Create(System.String)
+M:System.IO.File.SetAttributes(System.String,System.IO.FileAttributes)
+M:System.IO.File.SetCreationTime(System.String,System.DateTime)
+M:System.IO.File.SetLastWriteTime(System.String,System.DateTime)
+M:System.IO.File.SetLastAccessTime(System.String,System.DateTime)
+M:System.IO.File.WriteAllText(System.String,System.String)
+M:System.IO.File.WriteAllText(System.String,System.String,System.Text.Encoding)
+M:System.IO.File.WriteAllLines(System.String,System.String[])
+M:System.IO.File.WriteAllLines(System.String,System.String[],System.Text.Encoding)
+M:System.IO.File.WriteAllBytes(System.String,System.Byte[])
+M:System.IO.File.AppendAllText(System.String,System.String)
+M:System.IO.File.AppendAllText(System.String,System.String,System.Text.Encoding)
+M:System.IO.File.AppendAllLines(System.String,System.Collections.Generic.IEnumerable{System.String})
+M:System.IO.File.AppendAllLines(System.String,System.Collections.Generic.IEnumerable{System.String},System.Text.Encoding)
+M:System.IO.File.OpenWrite(System.String)
+M:System.IO.File.CreateText(System.String)
+M:System.IO.File.AppendText(System.String)
+M:System.IO.Directory.Delete(System.String)
+M:System.IO.Directory.Move(System.String,System.String)
+M:System.IO.Directory.CreateDirectory(System.String)
+# Dynamic loading and WMI
+M:System.Activator.CreateInstance(System.Type)
+M:System.Type.GetType(System.String)
+M:System.Type.GetTypeFromProgID(System.String)
+M:System.Type.GetTypeFromCLSID(System.Guid)
+M:System.Reflection.Assembly.Load(System.String)
+M:System.Reflection.Assembly.LoadFrom(System.String)
+T:System.Management.ManagementObject
+T:Microsoft.CSharp.RuntimeBinder.Binder
+M:System.Linq.Expressions.LambdaExpression.Compile

@@ -22,7 +22,8 @@ function Get-InspectorEnvironment {
 }
 
 function Get-AppTrackingSetting {
-    param([scriptblock]$OnError)
-    try {$base=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser,[Microsoft.Win32.RegistryView]::Default);try{$key=$base.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced',$false);if($key){try{$value=$key.GetValue('Start_TrackProgs',$null);if($null -ne $value){return [pscustomobject]@{Enabled=([int]$value -ne 0);Value=[int]$value;Status='取得済み'}}}finally{$key.Dispose()}}}finally{$base.Dispose()}}catch{if($OnError){$OnError.Invoke('Start_TrackProgs','ReadRegistry',$_.Exception.GetType().Name,$_.Exception.Message)}}
+    param([scriptblock]$OnError,[object]$Value)
+    if($PSBoundParameters.ContainsKey('Value')){if($null -eq $Value){return [pscustomobject]@{Enabled=$false;Value=$null;Status='値なし（既定で有効の可能性）'}};$normalized=[uint32]([int64]$Value -band 0xffffffffL);return [pscustomobject]@{Enabled=($normalized -ne 0);Value=('0x{0:X8}' -f $normalized);Status='取得済み'}}
+    try {$base=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser,[Microsoft.Win32.RegistryView]::Default);try{$key=$base.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced',$false);if($key){try{$value=$key.GetValue('Start_TrackProgs',$null);if($null -ne $value){$normalized=[uint32]([int64]$value -band 0xffffffffL);return [pscustomobject]@{Enabled=($normalized -ne 0);Value=('0x{0:X8}' -f $normalized);Status='取得済み'}}}finally{$key.Dispose()}}}finally{$base.Dispose()}}catch{if($OnError){$OnError.Invoke('Start_TrackProgs','ReadRegistry',$_.Exception.GetType().Name,$_.Exception.Message)}}
     [pscustomobject]@{Enabled=$false;Value=$null;Status='値なし（既定で有効の可能性）'}
 }

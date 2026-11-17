@@ -23,3 +23,110 @@ jobs:
       - name: Windows fixture tests
         shell: pwsh
         run: Invoke-Pester ./tests/windows -CI -Output Detailed
+  csharp-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.404
+      - run: dotnet build WinInspector.sln -p:EnableWindowsTargeting=true -m:1
+      - run: dotnet test tests/WinInspector.Core.Tests/WinInspector.Core.Tests.csproj -m:1
+      - run: dotnet run --project tests/WinInspector.StaticChecks -- --self-test
+      - run: dotnet run --project tests/WinInspector.StaticChecks
+  csharp-windows:
+    needs: csharp-linux
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.404
+      - run: dotnet build WinInspector.sln -m:1
+      - run: dotnet test tests/WinInspector.Windows.Tests/WinInspector.Windows.Tests.csproj -m:1
+      - run: dotnet publish src/WinInspector.Cli -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish/win-x64
+      - name: Run published exe against fixture
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:RUNNER_TEMP 'wininspector-fixture'
+          $output = Join-Path $env:RUNNER_TEMP 'wininspector-output'
+          New-Item -ItemType Directory -Path $fixture,$output -Force | Out-Null
+          Set-Content -LiteralPath (Join-Path $fixture 'alpha.txt') -Value 'alpha' -NoNewline
+          New-Item -ItemType Directory -Path (Join-Path $fixture 'nested') -Force | Out-Null
+          Set-Content -LiteralPath (Join-Path $fixture 'nested' 'beta.txt') -Value 'beta' -NoNewline
+          $fixedTime = [datetime]'2020-01-01T00:00:00Z'
+          Get-ChildItem -LiteralPath $fixture -Force -Recurse | ForEach-Object { $_.CreationTimeUtc = $fixedTime; $_.LastWriteTimeUtc = $fixedTime }
+          (Get-Item -LiteralPath $fixture).CreationTimeUtc = $fixedTime; (Get-Item -LiteralPath $fixture).LastWriteTimeUtc = $fixedTime
+          function Get-FixtureSnapshot($Path) {
+            @(Get-ChildItem -LiteralPath $Path -Force -Recurse | ForEach-Object { [pscustomobject]@{ Path=$_.FullName; Length=$_.Length; CreationTimeUtc=$_.CreationTimeUtc; LastWriteTimeUtc=$_.LastWriteTimeUtc; Attributes=[string]$_.Attributes } } | Sort-Object Path)
+          }
+          $before = Get-FixtureSnapshot $fixture
+          $advanced = Get-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -ErrorAction SilentlyContinue
+          $registryValueCountBefore = if ($advanced) { $advanced.GetValueNames().Count } else { 0 }
+          & publish/win-x64/WinInspector.exe -Mode Files -Target $fixture -OutputDir $output -FolderDepth 5 -NoPause
+          if ($LASTEXITCODE -ne 0) { throw "WinInspector.exe returned $LASTEXITCODE" }
+          $run = Get-ChildItem -LiteralPath $output -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $run) { throw 'Output run directory was not created.' }
+          $files = Import-Csv (Join-Path $run.FullName ("files_{0}.csv" -f $run.Name))
+          if ($files.Count -ne 2) { throw "Expected two file rows, got $($files.Count)." }
+          if (-not ($files.Path -match 'alpha\.txt') -or -not ($files.Path -match 'beta\.txt')) { throw 'Fixture paths were not present in files CSV.' }
+          $summaryPath = Join-Path $run.FullName ("summary_{0}.txt" -f $run.Name)
+          $summary = Get-Content -LiteralPath $summaryPath -Raw
+          if ($summary -notmatch '実行形式: WinInspector\.exe' -or $summary -notmatch '状態: 完了') { throw 'Summary did not match expected exe output.' }
+          $after = Get-FixtureSnapshot $fixture
+          $beforeJson = ConvertTo-Json -InputObject $before -Depth 4 -Compress
+          $afterJson = ConvertTo-Json -InputObject $after -Depth 4 -Compress
+          if ($beforeJson -cne $afterJson) {
+            $beforeByPath = @{}; foreach ($item in $before) { $beforeByPath[$item.Path] = $item }
+            $afterByPath = @{}; foreach ($item in $after) { $afterByPath[$item.Path] = $item }
+            $paths = @($beforeByPath.Keys + $afterByPath.Keys | Sort-Object -Unique)
+            $diff = foreach ($path in $paths) {
+              if (-not $beforeByPath.ContainsKey($path)) { "Added: $path"; continue }
+              if (-not $afterByPath.ContainsKey($path)) { "Removed: $path"; continue }
+              foreach ($field in 'Length','CreationTimeUtc','LastWriteTimeUtc','Attributes') {
+                $b = $beforeByPath[$path].$field; $a = $afterByPath[$path].$field
+                $bs = if ($b -is [datetime]) { $b.ToString('o') } else { [string]$b }
+                $as = if ($a -is [datetime]) { $a.ToString('o') } else { [string]$a }
+                if ($bs -cne $as) { "$field changed for ${path}: '$bs' -> '$as'" }
+              }
+            }
+            if (-not $diff) { $diff = "JSON differs but no field diff found.`nbefore: $beforeJson`nafter: $afterJson" }
+            throw "Fixture changed during inspection:`n$($diff -join "`n")"
+          }
+          $advancedAfter = Get-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -ErrorAction SilentlyContinue
+          $registryValueCountAfter = if ($advancedAfter) { $advancedAfter.GetValueNames().Count } else { 0 }
+          if ($registryValueCountBefore -ne $registryValueCountAfter) { throw 'HKCU Explorer Advanced value count changed during inspection.' }
+          $csv = Import-Csv (Join-Path $run.FullName ("files_{0}.csv" -f $run.Name))
+          $expected = @('Path','Type','SizeBytes','CreationTime','LastWriteTime','LastAccessTime','LastAccessStatus','Attributes','Extension')
+          if ((@($csv[0].PSObject.Properties.Name) -join ',') -cne ($expected -join ',')) { throw 'CSV columns or order differ from contract.' }
+          if (Select-String -Path (Join-Path $run.FullName ("files_{0}.csv" -f $run.Name)) -Pattern '^[^,]*,\s*[=+@-]' -Quiet) { throw 'CSV formula protection failed.' }
+          Remove-Item -LiteralPath $fixture,$output -Recurse -Force
+      - name: Block outbound traffic for the executable during fixture run
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'publish/win-x64/WinInspector.exe').Path
+          $rule = 'WinInspector CI outbound deny'
+          $profiles = Get-NetFirewallProfile
+          Set-NetFirewallProfile -Profile $profiles.Name -LogBlocked True
+          $logPaths = @($profiles | ForEach-Object { $_.LogFileName } | Select-Object -Unique)
+          foreach ($logPath in $logPaths) { if (Test-Path $logPath) { Clear-Content -LiteralPath $logPath } }
+          try {
+            New-NetFirewallRule -DisplayName $rule -Direction Outbound -Program $exe -Action Block -Profile Any | Out-Null
+            $rules = Get-NetFirewallRule -DisplayName $rule
+            if (-not $rules -or $rules.Action -ne 'Block' -or $rules.Direction -ne 'Outbound') { throw 'Outbound deny rule was not installed.' }
+            foreach ($mode in @('Apps','Files','All')) { & $exe -Mode $mode -NoPause; if ($LASTEXITCODE -ne 0) { throw "WinInspector.exe returned $LASTEXITCODE in $mode mode with outbound traffic blocked." } }
+            if (Get-WinEvent -FilterHashtable @{LogName='Security'; Id=5157; StartTime=(Get-Date).AddMinutes(-5)} -ErrorAction SilentlyContinue | Where-Object { $_.Message -match [regex]::Escape($exe) }) { throw 'Windows Filtering Platform logged a dropped connection attempt by WinInspector.' }
+            foreach ($logPath in $logPaths) { if ((Test-Path $logPath) -and (Select-String -LiteralPath $logPath -SimpleMatch $exe -Quiet)) { throw "Firewall LogBlocked recorded a dropped connection by WinInspector: $logPath" } }
+          } finally {
+            Remove-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue
+          }
+
+      - name: Create release checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem publish/win-x64 -File | ForEach-Object { $hash = Get-FileHash $_.FullName -Algorithm SHA256; "$($hash.Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content publish/win-x64/SHA256SUMS.txt -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wininspector-win-x64
+          path: publish/win-x64/*
+          if-no-files-found: error
