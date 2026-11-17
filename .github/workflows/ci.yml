@@ -23,3 +23,60 @@ jobs:
       - name: Windows fixture tests
         shell: pwsh
         run: Invoke-Pester ./tests/windows -CI -Output Detailed
+  csharp-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build WinInspector.sln -p:EnableWindowsTargeting=true
+      - run: dotnet test tests/WinInspector.Core.Tests/WinInspector.Core.Tests.csproj
+      - run: dotnet run --project tests/WinInspector.StaticChecks
+  csharp-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build WinInspector.sln
+      - run: dotnet test tests/WinInspector.Windows.Tests/WinInspector.Windows.Tests.csproj
+      - run: dotnet publish src/WinInspector.Cli -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish/win-x64
+      - name: Run published exe against fixture
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:RUNNER_TEMP 'wininspector-fixture'
+          $output = Join-Path $env:RUNNER_TEMP 'wininspector-output'
+          New-Item -ItemType Directory -Path $fixture,$output -Force | Out-Null
+          Set-Content -LiteralPath (Join-Path $fixture 'alpha.txt') -Value 'alpha' -NoNewline
+          New-Item -ItemType Directory -Path (Join-Path $fixture 'nested') -Force | Out-Null
+          Set-Content -LiteralPath (Join-Path $fixture 'nested' 'beta.txt') -Value 'beta' -NoNewline
+          $before = Get-ChildItem -LiteralPath $fixture -File -Recurse | Get-FileHash -Algorithm SHA256 | Sort-Object Path | ConvertTo-Json -Compress
+          & publish/win-x64/WinInspector.exe -Mode Files -Target $fixture -OutputDir $output -FolderDepth 5 -NoPause
+          if ($LASTEXITCODE -ne 0) { throw "WinInspector.exe returned $LASTEXITCODE" }
+          $run = Get-ChildItem -LiteralPath $output -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $run) { throw 'Output run directory was not created.' }
+          $files = Import-Csv (Join-Path $run.FullName ("files_{0}.csv" -f $run.Name))
+          if ($files.Count -ne 2) { throw "Expected two file rows, got $($files.Count)." }
+          if (-not ($files.Path -match 'alpha\.txt') -or -not ($files.Path -match 'beta\.txt')) { throw 'Fixture paths were not present in files CSV.' }
+          $summaryPath = Join-Path $run.FullName ("summary_{0}.txt" -f $run.Name)
+          $summary = Get-Content -LiteralPath $summaryPath -Raw
+          if ($summary -notmatch '実行形式: WinInspector\.exe' -or $summary -notmatch '状態: 完了') { throw 'Summary did not match expected exe output.' }
+          $after = Get-ChildItem -LiteralPath $fixture -File -Recurse | Get-FileHash -Algorithm SHA256 | Sort-Object Path | ConvertTo-Json -Compress
+          if ($before -cne $after) { throw 'Fixture contents changed during inspection.' }
+          Remove-Item -LiteralPath $fixture,$output -Recurse -Force
+      - name: Block outbound traffic for the executable during fixture run
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'publish/win-x64/WinInspector.exe').Path
+          $rule = 'WinInspector CI outbound deny'
+          try {
+            New-NetFirewallRule -DisplayName $rule -Direction Outbound -Program $exe -Action Block -Profile Any | Out-Null
+            $rules = Get-NetFirewallRule -DisplayName $rule
+            if (-not $rules -or $rules.Action -ne 'Block' -or $rules.Direction -ne 'Outbound') { throw 'Outbound deny rule was not installed.' }
+            & $exe -Mode Apps -NoPause
+            if ($LASTEXITCODE -ne 0) { throw "WinInspector.exe returned $LASTEXITCODE with outbound traffic blocked." }
+          } finally {
+            Remove-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue
+          }

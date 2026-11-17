@@ -1,0 +1,11 @@
+System.Net.Http
+System.Net.Sockets
+System.Net.WebRequest
+System.Net.WebClient
+Registry.SetValue(
+RegistryKey.SetValue(
+Directory.Delete(
+File.Delete(
+Activator.CreateInstance
+GetTypeFromProgID
+Assembly.LoadFrom

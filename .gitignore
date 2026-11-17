@@ -2,8 +2,17 @@
 *.csv
 *.txt
 !/docs/**/*.txt
+!/tools/BannedSymbols.txt
 Logs/
 **/Logs/
 config/config.psd1
 TestResults/
 *.log
+
+bin/
+obj/
+publish/
+*.exe
+
+# Pester output
+testResults.xml

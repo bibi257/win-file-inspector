@@ -1,0 +1,8 @@
+using System.Globalization;
+namespace WinInspector.Core.Output;
+public sealed record SummaryData(DateTime Started,string Mode,string[] Targets,string OutputDir,bool IsAdministrator,string Account,string LastAccess,string Tracking,string TimeZone,int FileCount,int FolderCount,TimeSpan Elapsed,int ErrorCount,bool Interrupted=false,int InterruptedCount=0,string AppxStatus="未実行",IReadOnlyList<(string Name,long? Size)>? CandidatesA=null,IReadOnlyList<(string Name,long? Size)>? CandidatesB=null,int UnresolvedGuidCount=0);
+public static class SummaryBuilder
+{
+ public static string Build(SummaryData d){string Top(IReadOnlyList<(string Name,long? Size)>? x)=>x is null?"未実行":string.Join("; ",x.Take(10).Select(a=>$"{a.Name} ({a.Size?.ToString(CultureInfo.InvariantCulture)??""} bytes)"));
+ var rows=new[]{"WinInspector summary",$"実行日時: {d.Started:yyyy-MM-dd HH:mm:ss}",$"実行形式: WinInspector.exe（.NET {Environment.Version}）","モード: "+d.Mode,"対象: "+string.Join("; ",d.Targets),"出力先: "+d.OutputDir,"管理者: "+d.IsAdministrator,"実行アカウント: "+d.Account,"言語モード: 該当なし（exe 版）","最終アクセス設定: "+d.LastAccess,"タイムゾーン: "+d.TimeZone,"アプリ起動追跡(Start_TrackProgs): "+d.Tracking,$"ファイル件数: {d.FileCount}",$"フォルダ件数: {d.FolderCount}","所要時間: "+d.Elapsed,"候補A 上位: "+Top(d.CandidatesA),"候補B 上位: "+Top(d.CandidatesB),$"エラー件数: {d.ErrorCount}","Appx取得状態: "+d.AppxStatus,$"状態: {(d.Interrupted?$"中断（{d.InterruptedCount} 件まで）":d.ErrorCount>0?"一部エラー":"完了")}","",$"設定: モード={d.Mode}","制約: UserAssist と Prefetch の記録には保存・有効化状態による限界があります。",$"未変換の GUID 付きパス: {d.UnresolvedGuidCount}","最終アクセス時刻は有効な NTFS 設定の場合のみ記録します."};return string.Join("\r\n",rows);}
+}
