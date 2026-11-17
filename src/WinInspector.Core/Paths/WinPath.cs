@@ -1,6 +1,18 @@
 namespace WinInspector.Core.Paths;
 public static class WinPath
 {
+    public static bool IsUnc(string path) => path.StartsWith("\\\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal);
+    public static string? Root(string path)
+    {
+        if (path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && (path[2] == '\\' || path[2] == '/')) return path[..3];
+        if (path.StartsWith('/')) return "/";
+        if (IsUnc(path))
+        {
+            var parts = path.TrimStart('\\', '/').Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length >= 2 ? "\\\\" + parts[0] + "\\" + parts[1] + "\\" : null;
+        }
+        return null;
+    }
     public static string Normalize(string path)
     {
         if (path.Length == 0) return path;
