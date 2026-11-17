@@ -81,9 +81,13 @@ jobs:
               if (-not $beforeByPath.ContainsKey($path)) { "Added: $path"; continue }
               if (-not $afterByPath.ContainsKey($path)) { "Removed: $path"; continue }
               foreach ($field in 'Length','CreationTimeUtc','LastWriteTimeUtc','Attributes') {
-                if ([string]$beforeByPath[$path].$field -cne [string]$afterByPath[$path].$field) { "$field changed for ${path}: '$($beforeByPath[$path].$field)' -> '$($afterByPath[$path].$field)'" }
+                $b = $beforeByPath[$path].$field; $a = $afterByPath[$path].$field
+                $bs = if ($b -is [datetime]) { $b.ToString('o') } else { [string]$b }
+                $as = if ($a -is [datetime]) { $a.ToString('o') } else { [string]$a }
+                if ($bs -cne $as) { "$field changed for ${path}: '$bs' -> '$as'" }
               }
             }
+            if (-not $diff) { $diff = "JSON differs but no field diff found.`nbefore: $beforeJson`nafter: $afterJson" }
             throw "Fixture changed during inspection:`n$($diff -join "`n")"
           }
           $advancedAfter = Get-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -ErrorAction SilentlyContinue
