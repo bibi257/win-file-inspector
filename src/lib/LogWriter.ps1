@@ -10,7 +10,7 @@ function Write-InspectorCsvRow {
 function Open-InspectorCsv {
     param([string]$OutputDir,[string]$Name,[string[]]$Columns)
     $path=Join-Path $OutputDir $Name;Assert-OutputPath $path $OutputDir
-    $writer=[IO.StreamWriter]::new($path,$false,[Text.UTF8Encoding]::new($true));$writer.NewLine="`r`n";$writer.WriteLine((($Columns|ForEach-Object {ConvertTo-CsvCell $_}) -join ','));$writer
+    $writer=[IO.StreamWriter]::new($path,$false,[Text.UTF8Encoding]::new($true));$writer.AutoFlush=$true;$writer.NewLine="`r`n";$writer.WriteLine((($Columns|ForEach-Object {ConvertTo-CsvCell $_}) -join ','));$writer
 }
 function Assert-OutputPath {param([string]$Path,[string]$OutputDir);$root=[IO.Path]::GetFullPath($OutputDir).TrimEnd('\')+[IO.Path]::DirectorySeparatorChar;$full=[IO.Path]::GetFullPath($Path);if(-not $full.StartsWith($root,[StringComparison]::OrdinalIgnoreCase)){throw '出力先フォルダ外への書き込みを拒否しました'} }
 function Write-InspectorText {

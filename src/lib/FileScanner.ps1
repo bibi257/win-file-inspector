@@ -17,7 +17,8 @@ function Invoke-FileScan {
     $count=0; $errorCount=0; $folderCounter=[pscustomobject]@{Count=0}; $sw=[Diagnostics.Stopwatch]::StartNew(); $lastProgress=[DateTime]::MinValue
     foreach($target in $Targets){
         try{$full=ConvertTo-InspectorPath $target;if($full.StartsWith('\\')){$OnError.Invoke($full,'ValidateTarget','NetworkPathRejected','UNC パスは走査しません');continue};$drive=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($full));if($drive.DriveType -eq [IO.DriveType]::Network){$OnError.Invoke($full,'ValidateTarget','NetworkDriveRejected','ネットワークドライブは走査しません');continue};if($drive.DriveType -eq [IO.DriveType]::Removable -and -not $IncludeRemovable){$OnError.Invoke($full,'ValidateTarget','RemovableExcluded','-IncludeRemovable が指定されていません');continue}}catch{$OnError.Invoke($target,'ValidateTarget',$_.Exception.GetType().Name,$_.Exception.Message);continue}
-        if([IO.Directory]::Exists($full) -and (([IO.File]::GetAttributes($full) -band [IO.FileAttributes]::ReparsePoint) -ne 0)){$OnError.Invoke($full,'ValidateTarget','ReparsePointRejected','対象がリパースポイントのため列挙しません');continue}
+        try{$rootAttributes=[IO.File]::GetAttributes($full)}catch{$OnError.Invoke($full,'ValidateTarget',$_.Exception.GetType().Name,$_.Exception.Message);continue}
+        if([IO.Directory]::Exists($full) -and (($rootAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)){$OnError.Invoke($full,'ValidateTarget','ReparsePointRejected','対象がリパースポイントのため列挙しません');continue}
         $format=Get-FileSystemType $full
         $stack=[Collections.Generic.Stack[object]]::new();$stack.Push([pscustomobject]@{Path=$full;Depth=0;Exit=$false})
         $totals=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)

@@ -83,10 +83,10 @@ Describe 'Pure logic' {
 Describe 'Entry point end to end' {
     It 'handles zero launcher arguments and removes its temporary argument file' {
         $repo=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path;$launcher=Join-Path $repo 'tools/Start-Elevated.ps1';$harness=Join-Path $TestDrive 'launcher-harness.ps1'
-        $marker=Join-Path $TestDrive 'temp-was-created';$tempRoot=[IO.Path]::GetTempPath();$content="`$env:TEMP='$tempRoot';function Start-Process { param(`$FilePath,`$Verb,[switch]`$Wait,[switch]`$PassThru,`$ArgumentList) `$p=(`$ArgumentList -split '-ArgumentsFile ')[1].Trim().Trim([char]34);if(Test-Path -LiteralPath `$p){[IO.File]::WriteAllText('$marker','created')};[pscustomobject]@{ExitCode=17} }`n& '$launcher'"
+        $marker=Join-Path $TestDrive 'temp-was-created';$tempRoot=[IO.Path]::GetTempPath();$content="`$env:TEMP='$tempRoot';function Start-Process { param(`$FilePath,`$Verb,[switch]`$Wait,[switch]`$PassThru,`$ArgumentList) `$p=(`$ArgumentList -split '-ArgumentsFile ')[1].Trim().Trim([char]34);if(Test-Path -LiteralPath `$p){[IO.File]::WriteAllText('$marker','created')};[pscustomobject]@{ExitCode=17} }`n& '$launcher';`$code=`$LASTEXITCODE;[IO.File]::WriteAllText('$marker.exit',[string]`$code);exit `$code"
         [IO.File]::WriteAllText($harness,$content,[Text.UTF8Encoding]::new($true));$before=@(Get-ChildItem $tempRoot -Filter 'wininspector-args-*.txt' -ErrorAction SilentlyContinue | ForEach-Object FullName)
         $pwsh=(Get-Command pwsh).Source;& $pwsh -NoLogo -NoProfile -File $harness
-        Test-Path $marker | Should -BeTrue;$after=@(Get-ChildItem $tempRoot -Filter 'wininspector-args-*.txt' -ErrorAction SilentlyContinue | ForEach-Object FullName);Compare-Object $before $after | Should -BeNullOrEmpty
+        $harnessExitCode=$LASTEXITCODE;Test-Path $marker | Should -BeTrue;$harnessExitCode | Should -Be 17;$after=@(Get-ChildItem $tempRoot -Filter 'wininspector-args-*.txt' -ErrorAction SilentlyContinue | ForEach-Object FullName);Compare-Object $before $after | Should -BeNullOrEmpty
     }
     It 'writes file, folder, error and summary outputs on Linux' {
         $repo=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
@@ -104,8 +104,12 @@ Describe 'Entry point end to end' {
         $fileCsv=Get-Content (Get-ChildItem $run -Filter 'files_*'|Select-Object -First 1).FullName
         $fileCount=$fileCsv.Count-1
         $fileCount | Should -Be 3
+        $folderCsv=Get-Content (Get-ChildItem $run -Filter 'folders_*'|Select-Object -First 1).FullName
+        $folderCount=$folderCsv.Count-1
+        $folderCount | Should -Be 2
         $summary=Get-Content (Get-ChildItem $run -Filter 'summary_*'|Select-Object -First 1).FullName -Raw
         $summary | Should -Match "ファイル件数: $fileCount"
+        $summary | Should -Match "フォルダ件数: $folderCount"
     }
     It 'reports candidate summaries as not run in Files mode' {
         $repo=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path;$target=Join-Path $TestDrive 'empty';$out=Join-Path $TestDrive 'filesout';[IO.Directory]::CreateDirectory($target)|Out-Null
