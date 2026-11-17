@@ -9,7 +9,7 @@ public static class Elevation
   var path=Path.Combine(Path.GetTempPath(),"wininspector-args-"+Guid.NewGuid().ToString("N")+".txt");
   var forwarded=args.Where(a=>!a.Equals("-Elevate",StringComparison.OrdinalIgnoreCase)).ToArray();
   var info=new ProcessStartInfo{FileName=Environment.ProcessPath??throw new InvalidOperationException("実行ファイルのパスを取得できません"),Verb="runas",UseShellExecute=true};
-  File.WriteAllLines(path,forwarded);
+  using(var writer=new StreamWriter(path,false,new System.Text.UTF8Encoding(false)))foreach(var argument in forwarded)writer.WriteLine(argument);
   info.Arguments="-ArgumentsFile \""+path.Replace("\"","\\\"",StringComparison.Ordinal)+"\"";
   try{using var child=System.Diagnostics.Process.Start(info)??throw new InvalidOperationException("昇格プロセスを起動できません");child.WaitForExit();return child.ExitCode;}catch(System.ComponentModel.Win32Exception ex) when(ex.NativeErrorCode==1223){throw;}catch(Exception ex){throw new InvalidOperationException("昇格プロセスを起動できません: "+ex.Message,ex);}finally{if(File.Exists(path))new FileInfo(path).Delete();}
  }

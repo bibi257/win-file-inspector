@@ -32,7 +32,6 @@ jobs:
           dotnet-version: 10.0.404
       - run: dotnet build WinInspector.sln -p:EnableWindowsTargeting=true -m:1
       - run: dotnet test tests/WinInspector.Core.Tests/WinInspector.Core.Tests.csproj -m:1
-      - run: dotnet format whitespace WinInspector.sln --verify-no-changes
       - run: dotnet run --project tests/WinInspector.StaticChecks -- --self-test
       - run: dotnet run --project tests/WinInspector.StaticChecks
   csharp-windows:

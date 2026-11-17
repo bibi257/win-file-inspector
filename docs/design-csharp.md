@@ -24,13 +24,13 @@ PowerShell 版の該当箇所と、C# 版での扱いを対応させます。Cod
 | 1 | DWORD を符号なし 32bit に正規化する。`[uint32]([int64]$v -band 0xffffffffL)`（EnvironmentProbe.ps1:12） | `unchecked((uint)(long)v)` で統一。NtfsDisableLastAccessUpdate と Start_TrackProgs の両方に適用（9章の差分参照） |
 | 2 | UserAssist の既知フォルダ GUID を実パスに変換する（UsageEvidence.ps1:16-17） | 7 件の固定マップ（9章の表）。値が空なら GUID のまま残す |
 | 3 | Prefetch の汎用名を除外する（UsageEvidence.ps1:33） | `^(?:uninstall\|unins\|install).*\.exe$` と `msiexec.exe`、`update.exe`、`setup.exe` を除外。大文字小文字を区別しない |
-| 4 | CountOnly の集約（Classifier.ps1:13、Invoke-WinInspector.ps1:34） | UserAssist 一致で RunCount > 0 があれば時刻の有無にかかわらず CountOnly を立て、最優先で「判定不能」にする |
+| 4 | CountOnly の集約（Classifier.ps1:13、Invoke-WinInspector.ps1:34） | UserAssist 一致で RunCount > 0 かつ LastRunTime が無いものがあれば CountOnly を立て、最優先で「判定不能」にする |
 | 5 | 過剰一致の除外（UsageEvidence.ps1:28、AppInventory.ps1:33） | 証拠照合で `C:\`、`C:\Program Files`、`C:\Program Files (x86)`、`C:\Windows`、`C:\Windows\System32` を InstallLocation や exe フォルダとして使わない。サイズ計測ではルート、Program Files、Program Files (x86) の 3 つを除外し、同一 InstallLocation が 2 件以上ある場合も計測しない |
 | 6 | 候補の並び順（Invoke-WinInspector.ps1:39） | 区分（A→B）→ サイズ不明を後ろ → サイズ降順。安定ソートを使い、同値は入力順 |
 | 7 | CSV 数式対策（LogWriter.ps1:4） | 保護列のみ。先頭が `= + - @ TAB CR LF` のとき `'` を付けてから二重引用で囲む |
 | 8 | junction・ネットワーク経路の拒否（FileScanner.ps1:19-21、AppInventory.ps1:20-23） | リパースポイントは中に入らず 1 行のみ記録。UNC・ネットワークドライブは拒否。InstallLocation の祖先にリパースポイントがあれば計測しない |
 | 9 | 中断時の件数（Invoke-WinInspector.ps1:47） | 中断しても summary とクローズを必ず行う。状態行は「中断（N件まで）」 |
-| 10 | 最終アクセス時刻（EnvironmentProbe.ps1:13、FileScanner.ps1:41） | NTFS かつ有効のときだけ値。それ以外は空欄と理由 |
+| 10 | 最終アクセス時刻（EnvironmentProbe.ps1:13、FileScanner.ps1:41） | NTFS かつ有効なら LastAccessStatus は空欄で時刻を出す。無効なら設定 Status、非 NTFS なら `非NTFS(<形式>)`、リパースポイントなら `ReparsePoint`。非 NTFS では時刻を出さない。 |
 
 ---
 
@@ -288,7 +288,7 @@ dotnet publish src/WinInspector.Cli -c Release -r win-x64 --self-contained true 
    7. Source が Appx で、`SignatureKind=System`、`IsFramework`、`NonRemovable`、`IsResourcePackage` のいずれか
    
    1 件でもあれば `対象外`。
-2. `CountOnly`（UserAssist の一致で回数が 1 以上）なら、最終時刻の有無にかかわらず `判定不能`（理由：`実行回数のみの記録あり`）。これは `Classifier.ps1` の最優先判定に合わせる。
+2. `CountOnly`（UserAssist の一致で回数が 1 以上かつ最終時刻が無いものがある）なら `判定不能`（理由：`実行回数のみの記録あり`）。これは `Classifier.ps1` の最優先判定に合わせる。
 3. 最終実行時刻があれば、`時刻 <= now − UnusedDays` で `候補A`、そうでなければ `判定不能`（`使用中（最終実行が閾値以内）`）。
 4. 実行回数が 1 以上なら `判定不能`（`証拠あり・時刻なし（実行回数の記録のみ）`）。
 5. 追跡が無効または不明なら `判定不能`（`アプリ起動追跡が無効または不明`）。
@@ -332,7 +332,7 @@ PS 版 AppInventory.ps1:33 の判定を次のとおりに移植します。
 
 集約：
 - `times` は時刻がある一致のうち最大（降順の先頭）。その Source を `LastRunSource` にする（時刻がなければ `UserAssist`）。
-- `CountOnly` は、時刻の有無にかかわらず UserAssist の一致で `RunCount > 0` が 1 件でもあれば true。
+- `CountOnly` は、UserAssist の一致のうち `RunCount > 0` かつ `LastRunTime` が無いものが 1 件でもあれば true。
 - `RunCount` は UserAssist の一致の最大値（一致がなければ null）。
 - `Method` は `found` の先頭。
 
@@ -453,15 +453,15 @@ PS 版の AST 検査は C# では使えないため、次の 3 層で代替し�
 
 - `Microsoft.CodeAnalysis.BannedApiAnalyzers` を全プロジェクトに入れ、`BannedSymbols.txt` で次を禁止します（違反は RS0030 のエラーになり、ビルドが止まります）。
   - `T:System.Net.*` の主要型（`WebClient`、`HttpClient`、`Socket`、`Dns`、`WebRequest`、`TcpClient`、`Ping`）
-  - `M:Microsoft.Win32.RegistryKey.SetValue*`、`DeleteValue`、`DeleteSubKey*`、`CreateSubKey*`、`OpenRemoteBaseKey`
+  - RegistryKey の `SetValue`、`DeleteValue`、`DeleteSubKey`、`DeleteSubKeyTree`、`CreateSubKey`、`OpenRemoteBaseKey`
   - `M:Microsoft.Win32.Registry.SetValue`
-  - `M:System.IO.File.Delete`、`Move`、`Copy`、`Replace`、`Create`、`SetAttributes`、`SetCreationTime*`、`SetLastWriteTime*`、`SetLastAccessTime*`、`WriteAll*`、`AppendAll*`
-  - `M:System.IO.Directory.Delete`、`Move`
-  - `M:System.Activator.CreateInstance*`、`M:System.Type.GetType*`、`M:System.Type.GetTypeFromProgID`、`M:System.Type.GetTypeFromCLSID`、`M:System.Reflection.Assembly.Load*`、`M:System.Reflection.Assembly.LoadFrom`
+  - `File` の Delete/Move/Copy/Replace/Create、属性・時刻変更、WriteAllText/Lines/Bytes、AppendAllText/Lines と書き込み用ストリーム取得（各シグネチャは BannedSymbols.txt に列挙）
+  - `Directory` の Delete/Move/CreateDirectory
+  - `M:System.Activator.CreateInstance(System.Type)`、`M:System.Type.GetType(System.String)`、`M:System.Type.GetTypeFromProgID`、`M:System.Type.GetTypeFromCLSID`、`M:System.Reflection.Assembly.Load(System.String)`、`M:System.Reflection.Assembly.LoadFrom`
   - `T:System.Management.*`（WMI、Win32_Product 対策）
   - `T:Microsoft.CSharp.*`（dynamic）、`T:System.Linq.Expressions.*`の `Compile`
 - 例外の許可は、該当ファイルに `#pragma warning disable RS0030` を書く形にし、そのファイルは 6.3 の検査で追加のレビュー対象になります。許可箇所は次だけです：
-  - `CsvWriter`、`SummaryBuilder`、`OutputDirectory` のファイル書き込みと作成
+  - `OutputFileWriter` のファイル書き込みと出力先内の作成
   - `Elevation.cs` の `Process.Start`
 
 ### 6.2 第 2 層：CI の静的検査（`tests/WinInspector.StaticChecks`、Linux で実行）
@@ -480,14 +480,14 @@ PS 版の AST 検査は C# では使えないため、次の 3 層で代替し�
 - `src/**/*.cs` を構文木で走査し、次を検出します。
   - 文字列リテラルに `WinHttp`、`MSXML2`、`InternetExplorer.Application`、`WScript.Shell`、`Invoke-WebRequest`、`Win32_Product`、`Get-Package` を含む（防御的な検出）。
   - `OpenSubKey` の第 2 引数が `false` 以外のリテラル、または式（書き込み用の取得を防ぐ）。
-  - `FileStream` や `File.Open` の第 2 引数 `FileAccess` に `Write` や `ReadWrite` を含む（書き込みは `CsvWriter` と `SummaryBuilder` と `OutputDirectory` だけ）。
+  - `FileStream` や `File.Open` の第 2 引数 `FileAccess` に `Write` や `ReadWrite` を含む（書き込みは `OutputFileWriter` だけ）。
   - `Process` の `Start` の呼び出し（許可箇所 `Elevation.cs` の 1 メソッド以外）。
   - `ShellLink` 系の `Save`、`SetPath`、`Resolve` の呼び出し。
   - `dynamic` キーワードと `nameof` 以外の反射による呼び出し。
 
 **(c) 書き込み箇所の集約**
 
-- 書き込みを伴う API（`FileStream` の書き込み、`Directory.CreateDirectory`）は、`OutputDirectory` と `CsvWriter` と `SummaryBuilder` 以外で使えないことを (b) で確認します。
+- 書き込みを伴う API（`FileStream` の書き込み、`Directory.CreateDirectory`）は、`OutputFileWriter 以外で使えないことを (b) で確認します。
 - 検査器自体の検証として、禁止パターンを含む小さなサンプルを用意し、検査が失敗することを確かめるテストを置きます（検査器が壊れていないことの保証）。
 
 ### 6.3 第 3 層：実行時（Windows CI）
@@ -545,7 +545,7 @@ PS 版の `tests/unit/Logic.Tests.ps1` と `tests/static` の内容を次のよ�
 
 ### 7.4 CI の追加（既存 `ci.yml` に jobs を足す形）
 
-既存の `linux` と `windows` の jobs は変更しません。次の jobs を追加します。
+整形はレビューで担保し、CI の format ゲートは行いません。既存の `linux` と `windows` の jobs は変更しません。次の jobs を追加します。
 
 ```yaml
   csharp-linux:               # ubuntu-latest
@@ -555,7 +555,6 @@ PS 版の `tests/unit/Logic.Tests.ps1` と `tests/static` の内容を次のよ�
         with: { dotnet-version: '10.0.x' }
       - run: dotnet test tests/WinInspector.Core.Tests
       - run: dotnet test tests/WinInspector.StaticChecks
-      - run: dotnet format whitespace --verify-no-changes
 
   csharp-windows:             # windows-latest（needs: csharp-linux）
     steps:

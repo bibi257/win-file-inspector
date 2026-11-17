@@ -20,8 +20,13 @@ public static class EvidenceMatcher
         }
         var timed=candidates.Where(x=>x.Evidence.LastRunTime.HasValue).OrderByDescending(x=>x.Evidence.LastRunTime).FirstOrDefault();
         var count=candidates.Where(x=>x.Evidence.Source=="UserAssist").Select(x=>x.Evidence.RunCount).Where(x=>x.HasValue).Select(x=>x!.Value).DefaultIfEmpty().Max();
-        return new(timed.Evidence?.LastRunTime,timed.Evidence?.Source??(count>0?"UserAssist":"なし"),count>0?count:null,candidates.Any(x=>x.Evidence.Source=="UserAssist"&&x.Evidence.RunCount>0),candidates.FirstOrDefault().Method);
+        return new(timed.Evidence?.LastRunTime,timed.Evidence?.Source??(count>0?"UserAssist":"なし"),count>0?count:null,candidates.Any(x=>x.Evidence.Source=="UserAssist"&&x.Evidence.RunCount>0&&!x.Evidence.LastRunTime.HasValue),candidates.FirstOrDefault().Method);
     }
     private static string? ExtractExeName(string? text){if(string.IsNullOrWhiteSpace(text))return null;var m=System.Text.RegularExpressions.Regex.Match(text,"(?i)([^\\\\/\\\"\\s,]+\\.exe)");return m.Success?m.Groups[1].Value:null;}
-    private static string? ExtractExeFolder(string? text){if(ExtractExeName(text) is null)return null;var s=text!.Trim().Trim('"');return s[..s.LastIndexOfAny(['\\','/'])];}
+    private static string? ExtractExeFolder(string? text)
+    {
+        if(string.IsNullOrWhiteSpace(text))return null;
+        var match=System.Text.RegularExpressions.Regex.Match(text,@"^\s*""?([^"",]+?\.exe)(""|,|\s|$)",System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if(!match.Success)return null;var exe=match.Groups[1].Value;var separator=exe.LastIndexOfAny(['\\','/']);return separator<0?null:exe[..separator];
+    }
 }

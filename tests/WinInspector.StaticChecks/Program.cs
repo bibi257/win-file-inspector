@@ -4,7 +4,7 @@ using System.Text.Json;
 
 var root=FindRoot(Directory.GetCurrentDirectory());
 var bannedSymbols=File.ReadAllLines(Path.Combine(root,"tools","BannedSymbols.txt")).Where(x=>x.Length>0&&!x.StartsWith('#')).ToArray();
-if(args.Contains("--self-test")){if(FindBanned("System.Net.Http.HttpClient").Count==0||!StripCommentsAndStrings("var x = Process.Start(info);").Contains("Process.Start(",StringComparison.Ordinal))throw new InvalidOperationException("Static checker failed to detect a deliberately banned sample.");Console.WriteLine("Static checker self-test passed.");return 0;}
+if(args.Contains("--self-test")){if(FindBanned("System.Net.Http.HttpClient").Count==0||FindBanned("System.IO.File.WriteAllText(\"x\",\"y\");").Count==0||!StripCommentsAndStrings("var x = Process.Start(info);").Contains("Process.Start(",StringComparison.Ordinal))throw new InvalidOperationException("Static checker failed to detect a deliberately banned sample.");Console.WriteLine("Static checker self-test passed.");return 0;}
 var allowBytes=File.ReadAllBytes(Path.Combine(root,"tools","csharp-allowlist.json"));
 var allowed=JsonDocument.Parse(allowBytes).RootElement.GetProperty("processStartAllowlist").EnumerateArray().Select(x=>x.GetString()!).ToHashSet(StringComparer.OrdinalIgnoreCase);
 var failures=new List<string>();
@@ -15,13 +15,27 @@ foreach(var file in Directory.EnumerateFiles(Path.Combine(root,"src"),"*.cs",Sea
     foreach(var literal in System.Text.RegularExpressions.Regex.Matches(source,"\\\"([^\\\"\\\\]|\\\\.)*\\\"").Select(x=>x.Value))if(literal.Contains("WinHttp")||literal.Contains("MSXML2")||literal.Contains("InternetExplorer.Application")||literal.Contains("WScript.Shell")||literal.Contains("Invoke-WebRequest")||literal.Contains("Win32_Product")||literal.Contains("Get-Package"))failures.Add($"Forbidden defensive string literal: {relative}: {literal}");
     if(syntax.Contains("Process.Start(",StringComparison.Ordinal)&&!allowed.Contains(relative))failures.Add($"Process.Start outside allowlist: {relative}");
     if(syntax.Contains("Process.Start(",StringComparison.Ordinal)&&allowed.Contains(relative)&&(!source.Contains("Environment.ProcessPath",StringComparison.Ordinal)||!source.Contains("UseShellExecute=true",StringComparison.Ordinal)||!source.Contains("Verb=\"runas\"",StringComparison.Ordinal)))failures.Add($"Elevation contract missing: {relative}");
-    foreach(var banned in bannedSymbols)if(syntax.Contains(banned,StringComparison.Ordinal))failures.Add($"Banned source symbol {banned}: {relative}");
+    foreach(var banned in FindBanned(syntax))
+    {
+        var outputWriter=relative=="src/WinInspector.Core/Output/OutputFileWriter.cs";
+        var approvedOutputWrite=outputWriter&&(banned.StartsWith("M:System.IO.File.",StringComparison.Ordinal)||banned=="M:System.IO.Directory.CreateDirectory(System.String)");
+        if(!approvedOutputWrite)failures.Add($"Banned source symbol {banned}: {relative}");
+    }
+    if(relative=="src/WinInspector.Core/Output/OutputFileWriter.cs"&&(!source.Contains("OutputGuard.AssertWithin(path,outputDir)",StringComparison.Ordinal)||!source.Contains("OutputGuard.AssertWithin(path,outputRoot)",StringComparison.Ordinal)))failures.Add($"Output writer guard missing: {relative}");
 }
 var bins=Directory.EnumerateFiles(Path.Combine(root,"src"),"WinInspector*.dll",SearchOption.AllDirectories).Where(p=>!p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")&&!p.Contains($"{Path.DirectorySeparatorChar}ref{Path.DirectorySeparatorChar}")).ToArray();
 foreach(var path in bins)try{using var stream=File.OpenRead(path);using var pe=new PEReader(stream);if(!pe.HasMetadata)continue;var md=pe.GetMetadataReader();foreach(var handle in md.TypeReferences){var type=md.GetTypeReference(handle);var ns=md.GetString(type.Namespace);if(ns.StartsWith("System.Net",StringComparison.Ordinal)||ns.StartsWith("System.Management",StringComparison.Ordinal)||ns.StartsWith("System.Runtime.Loader",StringComparison.Ordinal)||ns.StartsWith("Microsoft.CSharp",StringComparison.Ordinal)||ns.StartsWith("System.Linq.Expressions",StringComparison.Ordinal)||ns.StartsWith("Windows.Networking",StringComparison.Ordinal)||ns.StartsWith("Windows.Web",StringComparison.Ordinal)||ns.StartsWith("Windows.Services",StringComparison.Ordinal))failures.Add($"Forbidden IL namespace {ns}: {path}");}foreach(var handle in md.MemberReferences){var member=md.GetMemberReference(handle);var name=md.GetString(member.Name);if(name=="GetType"&&member.Parent.Kind==HandleKind.TypeReference&&md.GetString(md.GetTypeReference((TypeReferenceHandle)member.Parent).Name)=="Type")failures.Add($"Forbidden IL member Type.GetType: {path}");if(name=="Start"&&member.Parent.Kind==HandleKind.TypeReference&&md.GetString(md.GetTypeReference((TypeReferenceHandle)member.Parent).Name)=="Process"&&!path.Replace('\\','/').EndsWith("WinInspector.Windows.dll",StringComparison.Ordinal))failures.Add($"Process.Start outside Windows layer: {path}");}foreach(var handle in md.MethodDefinitions){var method=md.GetMethodDefinition(handle);if((method.Attributes&System.Reflection.MethodAttributes.PinvokeImpl)!=0){var import=method.GetImport();var module=md.GetModuleReference(import.Module);var dll=md.GetString(module.Name);if(dll is not ("kernel32.dll" or "ole32.dll"))failures.Add($"Forbidden DllImport {dll}: {path}");}}}catch(BadImageFormatException){}
 if(bins.Length==0)failures.Add("No managed assemblies found; build must run before static checks.");
 if(failures.Count>0){foreach(var failure in failures)Console.Error.WriteLine(failure);return 1;}
 Console.WriteLine($"Static checks passed: {bins.Length} managed assemblies inspected; source bans and elevation allowlist verified.");return 0;
-List<string> FindBanned(string source)=>bannedSymbols.Where(x=>{var separator=x.IndexOf(':');var token=separator<0?x:x[(separator+1)..];return source.Contains(token.Replace("*","",StringComparison.Ordinal),StringComparison.Ordinal);}).ToList();
+List<string> FindBanned(string source)=>bannedSymbols.Where(x=>
+{
+    var separator=x.IndexOf(':');var identifier=separator<0?x:x[(separator+1)..];
+    var signature=identifier.IndexOf('(');if(signature>=0)identifier=identifier[..signature];
+    if(x.StartsWith("T:",StringComparison.Ordinal))return source.Contains(identifier,StringComparison.Ordinal)||source.Contains(identifier[(identifier.LastIndexOf('.')+1)..],StringComparison.Ordinal);
+    var split=identifier.LastIndexOf('.');var typeName=split<0?string.Empty:identifier[..split];var leaf=identifier[(split+1)..];
+    var typeLeaf=typeName[(typeName.LastIndexOf('.')+1)..];
+    return source.Contains(identifier,StringComparison.Ordinal)||source.Contains(typeLeaf+"."+leaf+"(",StringComparison.Ordinal);
+}).ToList();
 static string StripCommentsAndStrings(string s)=>System.Text.RegularExpressions.Regex.Replace(s,"/\\*.*?\\*/|//[^\\r\\n]*|\\\"(?:\\\\.|[^\\\"\\\\])*\\\"|'(?:\\\\.|[^'\\\\])*'"," ",System.Text.RegularExpressions.RegexOptions.Singleline);
 static string FindRoot(string start){for(var d=new DirectoryInfo(start);d is not null;d=d.Parent)if(File.Exists(Path.Combine(d.FullName,"WinInspector.sln")))return d.FullName;throw new DirectoryNotFoundException("Repository root not found.");}

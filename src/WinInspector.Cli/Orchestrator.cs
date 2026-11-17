@@ -21,15 +21,15 @@ internal sealed class Orchestrator
  public static string Run(CliOptions options,CancellationToken cancellationToken=default)
  {
   if(!OperatingSystem.IsWindows())throw new PlatformNotSupportedException("WinInspector.exe は Windows で実行してください。");
-  var started=DateTime.Now;var output=Path.GetFullPath(options.OutputDir??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"WinInspector","Logs"));ValidateLocalPath(output,true);var run=Path.Combine(output,started.ToString("yyyyMMdd-HHmmss",CultureInfo.InvariantCulture));Directory.CreateDirectory(run);ValidateLocalPath(run,true);var stamp=Path.GetFileName(run);
+  var started=DateTime.Now;var output=Path.GetFullPath(options.OutputDir??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"WinInspector","Logs"));ValidateLocalPath(output,true);var run=Path.Combine(output,started.ToString("yyyyMMdd-HHmmss",CultureInfo.InvariantCulture));OutputFileWriter.EnsureDirectory(run,output);ValidateLocalPath(run,true);var stamp=Path.GetFileName(run);
   var targets=options.Targets.Length>0?options.Targets:DefaultTargets();foreach(var target in targets)ValidateLocalPath(target,false);var errors=new List<(string Path,string Operation,string Type,string Message)>();var files=new List<FileRow>();var folders=new List<FolderRow>();var interrupted=false;var unresolved=0;IReadOnlyList<(string Name,long? Size)>? candidatesA=null;IReadOnlyList<(string Name,long? Size)>? candidatesB=null;
   if(options.ConfigWarning is not null)errors.Add((Path.Combine(AppContext.BaseDirectory,"config","config.psd1"),"ReadConfig","ConfigurationWarning",options.ConfigWarning));
-  var settingsLast=WindowsSettingsReader.LastAccess();var settingsTrack=WindowsSettingsReader.Tracking();
+  var settingsLast=WindowsSettingsReader.LastAccess();var settingsTrack=WindowsSettingsReader.Tracking();var networkShortcutCount=0;
   if(options.Mode is "Files" or "All")
   {
-   try{var scan=new FileScanner(new WindowsFileSystem()).Scan(new(targets,options.Excludes,options.FolderDepth,settingsLast.Enabled,output,files,folders,options.IncludeRemovable,options.IncludeRawLastAccess),cancellationToken);errors.AddRange(scan.Errors.Select(e=>(e,"Enumerate","IOException",e)));}catch(OperationCanceledException){interrupted=true;}
-   Write(Path.Combine(run,$"files_{stamp}.csv"),FileHeaders,files.Select(f=>CsvWriter.Row([f.Path,f.Type,N(f.SizeBytes),F(f.CreationTime),F(f.LastWriteTime),f.LastAccessTime is null?null:F(f.LastAccessTime.Value),f.LastAccessStatus,f.Attributes,f.Extension])));
-   Write(Path.Combine(run,$"folders_{stamp}.csv"),FolderHeaders,folders.Select(f=>CsvWriter.Row([f.Path,N(f.Depth),N(f.DirectSizeBytes),N(f.TotalSizeBytes),N(f.FileCount),f.HadErrors.ToString()])));
+   try{var scan=new FileScanner(new WindowsFileSystem(),new VolumeInfoProvider().FormatOf).Scan(new(targets,options.Excludes,options.FolderDepth,settingsLast.Enabled,output,files,folders,options.IncludeRemovable,options.IncludeRawLastAccess,settingsLast.Status),cancellationToken);errors.AddRange(scan.Errors.Select(e=>(e,"Enumerate","IOException",e)));}catch(OperationCanceledException){interrupted=true;}
+   var fileHeaders=options.IncludeRawLastAccess?FileHeaders.Concat(["LastAccessTime_Raw"]).ToArray():FileHeaders;Write(run,Path.Combine(run,$"files_{stamp}.csv"),fileHeaders,files.Select(f=>CsvWriter.Row(new string?[]{f.Path,f.Type,N(f.SizeBytes),F(f.CreationTime),F(f.LastWriteTime),f.LastAccessTime is null?null:F(f.LastAccessTime.Value),f.LastAccessStatus,f.Attributes,f.Extension}.Concat(options.IncludeRawLastAccess?[f.LastAccessTimeRaw is null?null:F(f.LastAccessTimeRaw.Value)]:[]))));
+   Write(run,Path.Combine(run,$"folders_{stamp}.csv"),FolderHeaders,folders.Select(f=>CsvWriter.Row([f.Path,N(f.Depth),N(f.DirectSizeBytes),N(f.TotalSizeBytes),N(f.FileCount),f.HadErrors.ToString()])));
   }
   var appxStatus="未実行";
   if(options.Mode is "Apps" or "All")
@@ -41,16 +41,16 @@ internal sealed class Orchestrator
    var known=new KnownFolderMap();var evidence=new List<UsageEvidence>();
    foreach(var raw in UserAssistRegistryReader.ReadAll()){var parsed=UserAssistDecoder.Parse(raw.Data);if(parsed is null)continue;var decoded=known.Resolve(Rot13.Decode(raw.ValueName));if(decoded.Contains('{')&&System.Text.RegularExpressions.Regex.IsMatch(decoded,@"\{[0-9A-Fa-f-]{36}\}"))unresolved++;evidence.Add(new("UserAssist",decoded,null,parsed.RunCount,parsed.LastRunTime));}
    if(WindowsSettingsReader.IsAdministrator())try{foreach(var pf in PrefetchDirectoryReader.List())if(PrefetchNameParser.Parse(pf.FileName) is { } exe)evidence.Add(new("Prefetch",null,exe,null,pf.LastWriteTime));}catch(Exception ex){errors.Add(("Prefetch","Enumerate",ex.GetType().Name,ex.Message));}
-   var linkFailures=0;for(var i=0;i<evidence.Count;i++)if(evidence[i].Source=="UserAssist"&&evidence[i].Path?.EndsWith(".lnk",StringComparison.OrdinalIgnoreCase)==true){var link=evidence[i];var target=global::WinInspector.Windows.Shell.ShellLinkTargetReader.TryReadTarget(link.Path!,()=>linkFailures++);if(target is not null)evidence[i]=link with{Path=target};}
+   for(var i=0;i<evidence.Count;i++)if(evidence[i].Source=="UserAssist"&&evidence[i].Path?.EndsWith(".lnk",StringComparison.OrdinalIgnoreCase)==true){var link=evidence[i];var target=global::WinInspector.Windows.Shell.ShellLinkTargetReader.TryReadTarget(link.Path!,()=>networkShortcutCount++);if(target is not null)evidence[i]=link with{Path=target};}
    var locations=apps.Select(a=>a.Values.TryGetValue("InstallLocation",out var x)?Convert.ToString(x,CultureInfo.InvariantCulture):null).Where(x=>!string.IsNullOrWhiteSpace(x)).Select(x=>x!).ToArray();var measurer=new InstallFolderMeasurer(new WindowsFileSystem());
    var patterns=ReadNamePatterns();var rows=apps.Select(a=>BuildAppRow(a.Source,a.Values,options.UnusedDays,settingsTrack.Enabled,evidence,measurer,locations,errors,patterns)).ToList();rows=rows.OrderBy(r=>r[13]=="候補A"?0:r[13]=="候補B"?1:2).ThenBy(r=>r[6]==""?1:0).ThenByDescending(r=>long.TryParse(r[6],out var n)?n:0).ToList();
    candidatesA=rows.Where(r=>r[13]=="候補A").Select(r=>(r[1],long.TryParse(r[6],out var value)?(long?)value:null)).ToArray();candidatesB=rows.Where(r=>r[13]=="候補B").Select(r=>(r[1],long.TryParse(r[6],out var value)?(long?)value:null)).ToArray();
-   Write(Path.Combine(run,$"apps_{stamp}.csv"),AppHeaders,rows.Select(x=>CsvWriter.Row(x,new HashSet<int>{1,2,3,4,5,8,10,12,13,14})));
-   Write(Path.Combine(run,$"app_candidates_{stamp}.csv"),CandidateHeaders,rows.Where(r=>r[13] is "候補A" or "候補B").Select(x=>CsvWriter.Row([x[0],x[1],x[2],x[3],x[4],x[6],x[8],x[9],x[10],x[11],x[12],x[13],x[14]],new HashSet<int>{1,2,3,4,6,10,11,12})));
+   Write(run,Path.Combine(run,$"apps_{stamp}.csv"),AppHeaders,rows.Select(x=>CsvWriter.Row(x,new HashSet<int>{1,2,3,4,5,8,10,12,13,14})));
+   Write(run,Path.Combine(run,$"app_candidates_{stamp}.csv"),CandidateHeaders,rows.Where(r=>r[13] is "候補A" or "候補B").Select(x=>CsvWriter.Row([x[0],x[1],x[2],x[3],x[4],x[6],x[8],x[9],x[10],x[11],x[12],x[13],x[14]],new HashSet<int>{1,2,3,4,6,10,11,12})));
   }
-  Write(Path.Combine(run,$"errors_{stamp}.csv"),ErrorHeaders,errors.Select(e=>CsvWriter.Row([e.Path,e.Operation,e.Type,e.Message],new HashSet<int>{0,3})));
-  var summary=SummaryBuilder.Build(new(started,options.Mode,targets,run,WindowsSettingsReader.IsAdministrator(),System.Security.Principal.WindowsIdentity.GetCurrent().Name,$"{settingsLast.Status} ({Hex(settingsLast.Value)}){(options.ConfigWarning is null?string.Empty:" / "+options.ConfigWarning)}",$"{settingsTrack.Status} / {Hex(settingsTrack.Value)}",TimeZoneInfo.Local.Id,options.Mode is "Files" or "All"?files.Count:0,options.Mode is "Files" or "All"?folders.Count:0,DateTime.Now-started,errors.Count,interrupted,files.Count,appxStatus,candidatesA,candidatesB,unresolved));
-  WriteText(Path.Combine(run,$"summary_{stamp}.txt"),summary);
+  Write(run,Path.Combine(run,$"errors_{stamp}.csv"),ErrorHeaders,errors.Select(e=>CsvWriter.Row([e.Path,e.Operation,e.Type,e.Message],new HashSet<int>{0,3})));
+  var summary=SummaryBuilder.Build(new(started,options.Mode,targets,run,WindowsSettingsReader.IsAdministrator(),System.Security.Principal.WindowsIdentity.GetCurrent().Name,$"{settingsLast.Status} ({Hex(settingsLast.Value)}){(options.ConfigWarning is null?string.Empty:" / "+options.ConfigWarning)}",$"{settingsTrack.Status} / {Hex(settingsTrack.Value)}",TimeZoneInfo.Local.Id,options.Mode is "Files" or "All"?files.Count:0,options.Mode is "Files" or "All"?folders.Count:0,DateTime.Now-started,errors.Count,interrupted,files.Count,appxStatus,candidatesA,candidatesB,unresolved,options.UnusedDays,options.FolderDepth,options.Excludes,WindowsSettingsReader.IsAdministrator()&&(options.Mode is "Apps" or "All"),WindowsSettingsReader.LastAccessRegistryStatus(),networkShortcutCount));
+  WriteText(run,Path.Combine(run,$"summary_{stamp}.txt"),summary);
   return run;
  }
  private static string[] DefaultTargets()=>new[]{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)}.Where(p=>!string.IsNullOrWhiteSpace(p)&&Directory.Exists(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -70,6 +70,6 @@ internal sealed class Orchestrator
  private static string N(long? value)=>value?.ToString(CultureInfo.InvariantCulture)??"";
  private static string N(int value)=>value.ToString(CultureInfo.InvariantCulture);
  private static string F(DateTime value)=>value.ToString("yyyy-MM-dd HH:mm:ss",CultureInfo.InvariantCulture);
- private static void Write(string path,string[] headers,IEnumerable<string> rows){OutputGuard.AssertWithin(path,Path.GetDirectoryName(path)!);var content=string.Join("\r\n",new[]{CsvWriter.Row(headers)}.Concat(rows))+"\r\n";File.WriteAllText(path,content,new UTF8Encoding(true));}
- private static void WriteText(string path,string value){OutputGuard.AssertWithin(path,Path.GetDirectoryName(path)!);File.WriteAllText(path,value,new UTF8Encoding(true));}
+ private static void Write(string outputRoot,string path,string[] headers,IEnumerable<string> rows){var content=string.Join("\r\n",new[]{CsvWriter.Row(headers)}.Concat(rows))+"\r\n";OutputFileWriter.Write(path,outputRoot,content);}
+ private static void WriteText(string outputRoot,string path,string value){OutputFileWriter.Write(path,outputRoot,value);}
 }
