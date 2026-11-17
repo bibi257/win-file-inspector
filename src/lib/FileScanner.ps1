@@ -1,6 +1,7 @@
 ﻿function ConvertTo-InspectorPath {
     param([Parameter(Mandatory)][string]$Path)
-    [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar)
+    $full=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($full)
+    if([string]::Equals($full,$root,[StringComparison]::OrdinalIgnoreCase)){$full}else{$full.TrimEnd([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar)}
 }
 function Test-PathWithin {
     param([string]$Path,[string]$Root)

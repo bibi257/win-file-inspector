@@ -10,6 +10,7 @@
 function Get-AppClassification {
     param($App,[datetime]$Now,[int]$UnusedDays,[bool]$TrackingEnabled,[string[]]$Patterns)
     $excluded=Test-AppExcluded $App $Patterns;if($excluded.Excluded){return [pscustomobject]@{Status='対象外';ExcludedReason=$excluded.Reason}}
+    if($App.CountOnly){return [pscustomobject]@{Status='判定不能';ExcludedReason='実行回数の記録のみ（時刻不明）'}}
     if($App.LastRunTime){if(([datetime]$App.LastRunTime) -le $Now.AddDays(-$UnusedDays)){return [pscustomobject]@{Status='候補A';ExcludedReason=''}};return [pscustomobject]@{Status='判定不能';ExcludedReason='使用中（最終実行が閾値以内）'}}
     if($null -ne $App.RunCount -and [long]$App.RunCount -gt 0){return [pscustomobject]@{Status='判定不能';ExcludedReason='証拠あり・時刻なし（実行回数の記録のみ）'}}
     if(-not $TrackingEnabled){return [pscustomobject]@{Status='判定不能';ExcludedReason='アプリ起動追跡が無効または不明'}}

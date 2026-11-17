@@ -19,9 +19,17 @@ function Measure-InstallFolder {
     $full=[IO.Path]::GetFullPath($Path)
     if($full.StartsWith('\\')){if($OnError){$OnError.Invoke($full,'MeasureInstallFolder','NetworkPathRejected','UNC は列挙しません')};return}
     $drive=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($full));if($drive.DriveType -eq [IO.DriveType]::Network){if($OnError){$OnError.Invoke($full,'MeasureInstallFolder','NetworkDriveRejected','ネットワークドライブは列挙しません')};return}
+    $reparse=Get-ReparsePointAncestor $full
+    if($reparse){if($OnError){$OnError.Invoke($reparse,'MeasureInstallFolder','ReparsePointRejected','対象または祖先がリパースポイントのため列挙しません')};return}
     if($script:InstallFolderSizeCache.ContainsKey($full)){return $script:InstallFolderSizeCache[$full]}
     if(-not [IO.Directory]::Exists($full)){throw "InstallLocation を読めません: $full"}
     [long]$total=0;$stack=[Collections.Generic.Stack[string]]::new();$stack.Push($full)
     while($stack.Count){$dir=$stack.Pop();try{$entries=[IO.Directory]::EnumerateFileSystemEntries($dir);foreach($entry in $entries){try{$attr=[IO.File]::GetAttributes($entry);if(($attr -band [IO.FileAttributes]::ReparsePoint) -ne 0){continue};if(($attr -band [IO.FileAttributes]::Directory) -ne 0){$stack.Push($entry)}else{$total += ([IO.FileInfo]::new($entry)).Length}}catch{if($OnError){$OnError.Invoke($entry,'MeasureInstallFolderEntry',$_.Exception.GetType().Name,$_.Exception.Message)}}}}catch{if($OnError){$OnError.Invoke($dir,'MeasureInstallFolderDirectory',$_.Exception.GetType().Name,$_.Exception.Message)}}}
     $script:InstallFolderSizeCache[$full]=$total;$total
+}
+function Get-ReparsePointAncestor {
+    param([Parameter(Mandatory)][string]$Path)
+    $current=[IO.Path]::GetFullPath($Path)
+    while($current){try{if([IO.Directory]::Exists($current) -or [IO.File]::Exists($current)){if(([IO.File]::GetAttributes($current) -band [IO.FileAttributes]::ReparsePoint) -ne 0){return $current}}}catch{};$parent=[IO.Directory]::GetParent($current);if(!$parent){break};$current=$parent.FullName}
+    $null
 }

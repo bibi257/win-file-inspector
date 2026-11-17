@@ -18,4 +18,5 @@ function Write-InspectorText {
     $path=Join-Path $OutputDir $Name;Assert-OutputPath $path $OutputDir;$enc=[Text.UTF8Encoding]::new($true);[IO.File]::WriteAllText($path,$Content.Replace("`r`n","`n").Replace("`n","`r`n"),$enc)
 }
 
-function New-InspectorOutputDirectory {param([string]$Path);[IO.Directory]::CreateDirectory($Path)|Out-Null}
+function Assert-NoReparseOutputPath {param([string]$Path);$full=[IO.Path]::GetFullPath($Path);$current=$full;while($current){if([IO.Directory]::Exists($current) -or [IO.File]::Exists($current)){if(([IO.File]::GetAttributes($current) -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw "リパースポイントを含む出力先は使用できません: $current"}};$parent=[IO.Directory]::GetParent($current);if(!$parent){break};$current=$parent.FullName}}
+function New-InspectorOutputDirectory {param([string]$Path);Assert-NoReparseOutputPath $Path;[IO.Directory]::CreateDirectory($Path)|Out-Null;Assert-NoReparseOutputPath $Path}
