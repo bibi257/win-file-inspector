@@ -1,4 +1,4 @@
-# WinInspector
+﻿# WinInspector
 
 Windows 11 向けのオフライン検査ツールです。ファイルとインストール済みアプリの一覧、利用痕跡に基づく長期未使用候補を CSV と summary に出力します。
 
@@ -16,7 +16,7 @@ PowerShell 7 は Microsoft Store、WinGet、または公式 GitHub リリース�
 
 ## 実行
 
-`Start-Inspector.cmd` をダブルクリックすると通常ユーザーで起動します。Prefetch の痕跡を加える場合は `Start-Inspector-Admin.cmd` を使い、UAC を承認します。
+`Start-Inspector.cmd` をダブルクリックすると通常ユーザーで起動します。Prefetch の痕跡を加える場合は `Start-Inspector-Admin.cmd` を使い、UAC を承認します。管理者ランチャーは引数を一時ファイルに1行ずつ保存して昇格先で復元し、読み込み後にそのファイルを削除します。引数内の改行は使用できません。
 
 ```powershell
 Start-Inspector.cmd -Mode All
@@ -26,7 +26,7 @@ Start-Inspector.cmd -Mode Apps -UnusedDays 365
 
 引数は `-Mode Files|Apps|All`、`-Target`、`-Exclude`、`-OutputDir`、`-UnusedDays`（既定365）、`-FolderDepth`（既定3）、`-IncludeRawLastAccess`、`-IncludeRemovable` です。`config/config.sample.psd1` を `config/config.psd1` にコピーして設定できます。明示したコマンドライン引数が設定ファイルより優先されます。
 
-既定の対象は `%USERPROFILE%`、`C:\Program Files`、`C:\Program Files (x86)` です。UNC とネットワークドライブは拒否し、リムーバブルは明示指定がない限り除外します。ログは `%LOCALAPPDATA%\WinInspector\Logs\<実行日時>` に出力します。
+既定の対象は `%USERPROFILE%`、`C:\Program Files`、`C:\Program Files (x86)` です。UNC とネットワークドライブは拒否し、リムーバブルは明示指定がない限り除外します。InstallLocation や出力先までの経路にリパースポイントがある場合は拒否します。Prefetch 照合では `msiexec.exe`、`update.exe`、`setup.exe`、`uninstall*.exe`、`unins*.exe`、`install*.exe` を汎用名として除外します。ログは `%LOCALAPPDATA%\WinInspector\Logs\<実行日時>` に出力します。
 
 ZIP で取得した場合、展開前に ZIP のプロパティで「ブロックの解除」を選んでください。グループポリシーが実行ポリシーを強制する環境では実行できない場合があります。制約付き言語モードでは実行を停止します。
 
