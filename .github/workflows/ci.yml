@@ -81,7 +81,7 @@ jobs:
               if (-not $beforeByPath.ContainsKey($path)) { "Added: $path"; continue }
               if (-not $afterByPath.ContainsKey($path)) { "Removed: $path"; continue }
               foreach ($field in 'Length','CreationTimeUtc','LastWriteTimeUtc','Attributes') {
-                if ([string]$beforeByPath[$path].$field -cne [string]$afterByPath[$path].$field) { "$field changed for $path: '$($beforeByPath[$path].$field)' -> '$($afterByPath[$path].$field)'" }
+                if ([string]$beforeByPath[$path].$field -cne [string]$afterByPath[$path].$field) { "$field changed for ${path}: '$($beforeByPath[$path].$field)' -> '$($afterByPath[$path].$field)'" }
               }
             }
             throw "Fixture changed during inspection:`n$($diff -join "`n")"
