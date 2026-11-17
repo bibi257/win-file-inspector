@@ -54,6 +54,9 @@ jobs:
           Set-Content -LiteralPath (Join-Path $fixture 'alpha.txt') -Value 'alpha' -NoNewline
           New-Item -ItemType Directory -Path (Join-Path $fixture 'nested') -Force | Out-Null
           Set-Content -LiteralPath (Join-Path $fixture 'nested' 'beta.txt') -Value 'beta' -NoNewline
+          $fixedTime = [datetime]'2020-01-01T00:00:00Z'
+          Get-ChildItem -LiteralPath $fixture -Force -Recurse | ForEach-Object { $_.CreationTimeUtc = $fixedTime; $_.LastWriteTimeUtc = $fixedTime }
+          (Get-Item -LiteralPath $fixture).CreationTimeUtc = $fixedTime; (Get-Item -LiteralPath $fixture).LastWriteTimeUtc = $fixedTime
           function Get-FixtureSnapshot($Path) {
             @(Get-ChildItem -LiteralPath $Path -Force -Recurse | ForEach-Object { [pscustomobject]@{ Path=$_.FullName; Length=$_.Length; CreationTimeUtc=$_.CreationTimeUtc; LastWriteTimeUtc=$_.LastWriteTimeUtc; Attributes=[string]$_.Attributes } } | Sort-Object Path)
           }
