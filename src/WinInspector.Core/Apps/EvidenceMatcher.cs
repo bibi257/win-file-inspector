@@ -12,7 +12,8 @@ public static class EvidenceMatcher
         {
             if(item.Source=="UserAssist" && item.RunCount>0)
             {
-                if(location is not null&&item.Path?.StartsWith(location+"\\",StringComparison.OrdinalIgnoreCase)==true)candidates.Add((item,"InstallLocation"));
+                if(item.Path?.EndsWith(".lnk",StringComparison.OrdinalIgnoreCase)==true && item.ExeName is not null && new[]{app.DisplayIcon,app.UninstallString}.Select(ExtractExePath).Any(p=>p is not null&&item.ExeName.Equals(p,StringComparison.OrdinalIgnoreCase)))candidates.Add((item,"ShortcutTarget"));
+                else if(location is not null&&item.Path?.StartsWith(location+"\\",StringComparison.OrdinalIgnoreCase)==true)candidates.Add((item,"InstallLocation"));
                 else if(item.Path is not null&&exeFolders.Any(f=>item.Path.StartsWith(f+"\\",StringComparison.OrdinalIgnoreCase)))candidates.Add((item,"IconOrUninstaller"));
                 else if(app.PackageFamilyName is not null&&item.Path?.StartsWith(app.PackageFamilyName+"!",StringComparison.OrdinalIgnoreCase)==true)candidates.Add((item,"AppxAumid"));
             }
@@ -20,9 +21,20 @@ public static class EvidenceMatcher
         }
         var timed=candidates.Where(x=>x.Evidence.LastRunTime.HasValue).OrderByDescending(x=>x.Evidence.LastRunTime).FirstOrDefault();
         var count=candidates.Where(x=>x.Evidence.Source=="UserAssist").Select(x=>x.Evidence.RunCount).Where(x=>x.HasValue).Select(x=>x!.Value).DefaultIfEmpty().Max();
-        return new(timed.Evidence?.LastRunTime,timed.Evidence?.Source??(count>0?"UserAssist":"なし"),count>0?count:null,candidates.Any(x=>x.Evidence.Source=="UserAssist"&&x.Evidence.RunCount>0&&!x.Evidence.LastRunTime.HasValue),candidates.FirstOrDefault().Method);
+        var methodOrder=new[]{"InstallLocation","IconOrUninstaller","ShortcutTarget","AppxAumid","PrefetchName"};var method=methodOrder.FirstOrDefault(m=>candidates.Any(x=>x.Method==m));
+        return new(timed.Evidence?.LastRunTime,timed.Evidence?.Source??(count>0?"UserAssist":"なし"),count>0?count:null,candidates.Any(x=>x.Evidence.Source=="UserAssist"&&x.Evidence.RunCount>0&&!x.Evidence.LastRunTime.HasValue),method);
     }
-    private static string? ExtractExeName(string? text){if(string.IsNullOrWhiteSpace(text))return null;var m=System.Text.RegularExpressions.Regex.Match(text,"(?i)([^\\\\/\\\"\\s,]+\\.exe)");return m.Success?m.Groups[1].Value:null;}
+    private static string? ExtractExePath(string? text)
+    {
+        if(string.IsNullOrWhiteSpace(text))return null;
+        var match=System.Text.RegularExpressions.Regex.Match(text,@"^\s*""?([^"",]+?\.exe)(""|,|\s|$)",System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success?match.Groups[1].Value:null;
+    }
+    private static string? ExtractExeName(string? text)
+    {
+        var path=ExtractExePath(text);
+        return path is null?null:System.IO.Path.GetFileName(path);
+    }
     private static string? ExtractExeFolder(string? text)
     {
         if(string.IsNullOrWhiteSpace(text))return null;

@@ -76,6 +76,11 @@ Describe 'Pure logic' {
         $fake=[pscustomobject]@{EstimatedSize=-12};$fake|Add-Member ScriptMethod GetValue {param($name,$default) if($name -eq 'EstimatedSize'){$this.EstimatedSize}else{$default}}
         (Convert-UninstallKey $fake 'HKCU').EstimatedSize | Should -BeNullOrEmpty
     }
+    It 'treats a nonnumeric uninstall EstimatedSize as unset and continues' {
+        . (Join-Path $root 'src/lib/AppInventory.ps1')
+        $fake=[pscustomobject]@{EstimatedSize='not-a-number'};$fake|Add-Member ScriptMethod GetValue {param($name,$default) if($name -eq 'EstimatedSize'){$this.EstimatedSize}else{$default}}
+        (Convert-UninstallKey $fake 'HKCU').EstimatedSize | Should -BeNullOrEmpty
+    }
     It 'returns unknown folder size and records an error when the install root cannot be enumerated' {
         . (Join-Path $root 'src/lib/AppInventory.ps1')
         $errors=[Collections.Generic.List[object]]::new()

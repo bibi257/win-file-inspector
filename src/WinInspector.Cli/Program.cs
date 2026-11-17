@@ -22,6 +22,7 @@ internal static class Program
    if(!options.NoPause&&!Console.IsInputRedirected&&args.Length==0){Console.WriteLine("Enter キーで終了");Console.ReadLine();}
    return 0;
   }
+  catch(Orchestrator.OutputPrecheckException ex){Console.Error.WriteLine(ex.Message);return 2;}
   catch(ArgumentException ex){Console.Error.WriteLine(ex.Message);return 1;}
   catch(Exception ex){Console.Error.WriteLine(ex.Message);return 1;}
  }

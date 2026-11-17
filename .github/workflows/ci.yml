@@ -54,7 +54,10 @@ jobs:
           Set-Content -LiteralPath (Join-Path $fixture 'alpha.txt') -Value 'alpha' -NoNewline
           New-Item -ItemType Directory -Path (Join-Path $fixture 'nested') -Force | Out-Null
           Set-Content -LiteralPath (Join-Path $fixture 'nested' 'beta.txt') -Value 'beta' -NoNewline
-          $before = Get-ChildItem -LiteralPath $fixture -Force -Recurse | Select-Object FullName,Length,CreationTimeUtc,LastWriteTimeUtc,Attributes | ConvertTo-Json -Depth 4 -Compress
+          function Get-FixtureSnapshot($Path) {
+            @(Get-ChildItem -LiteralPath $Path -Force -Recurse | ForEach-Object { [pscustomobject]@{ Path=$_.FullName; Length=$_.Length; CreationTimeUtc=$_.CreationTimeUtc; LastWriteTimeUtc=$_.LastWriteTimeUtc; Attributes=[string]$_.Attributes } } | Sort-Object Path)
+          }
+          $before = Get-FixtureSnapshot $fixture
           $advanced = Get-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -ErrorAction SilentlyContinue
           $registryValueCountBefore = if ($advanced) { $advanced.GetValueNames().Count } else { 0 }
           & publish/win-x64/WinInspector.exe -Mode Files -Target $fixture -OutputDir $output -FolderDepth 5 -NoPause
@@ -67,8 +70,22 @@ jobs:
           $summaryPath = Join-Path $run.FullName ("summary_{0}.txt" -f $run.Name)
           $summary = Get-Content -LiteralPath $summaryPath -Raw
           if ($summary -notmatch '実行形式: WinInspector\.exe' -or $summary -notmatch '状態: 完了') { throw 'Summary did not match expected exe output.' }
-          $after = Get-ChildItem -LiteralPath $fixture -Force -Recurse | Select-Object FullName,Length,CreationTimeUtc,LastWriteTimeUtc,Attributes | ConvertTo-Json -Depth 4 -Compress
-          if ($before -cne $after) { throw 'Fixture path, size, timestamps, or attributes changed during inspection.' }
+          $after = Get-FixtureSnapshot $fixture
+          $beforeJson = ConvertTo-Json -InputObject $before -Depth 4 -Compress
+          $afterJson = ConvertTo-Json -InputObject $after -Depth 4 -Compress
+          if ($beforeJson -cne $afterJson) {
+            $beforeByPath = @{}; foreach ($item in $before) { $beforeByPath[$item.Path] = $item }
+            $afterByPath = @{}; foreach ($item in $after) { $afterByPath[$item.Path] = $item }
+            $paths = @($beforeByPath.Keys + $afterByPath.Keys | Sort-Object -Unique)
+            $diff = foreach ($path in $paths) {
+              if (-not $beforeByPath.ContainsKey($path)) { "Added: $path"; continue }
+              if (-not $afterByPath.ContainsKey($path)) { "Removed: $path"; continue }
+              foreach ($field in 'Length','CreationTimeUtc','LastWriteTimeUtc','Attributes') {
+                if ([string]$beforeByPath[$path].$field -cne [string]$afterByPath[$path].$field) { "$field changed for $path: '$($beforeByPath[$path].$field)' -> '$($afterByPath[$path].$field)'" }
+              }
+            }
+            throw "Fixture changed during inspection:`n$($diff -join "`n")"
+          }
           $advancedAfter = Get-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -ErrorAction SilentlyContinue
           $registryValueCountAfter = if ($advancedAfter) { $advancedAfter.GetValueNames().Count } else { 0 }
           if ($registryValueCountBefore -ne $registryValueCountAfter) { throw 'HKCU Explorer Advanced value count changed during inspection.' }
