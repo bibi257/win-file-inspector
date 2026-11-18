@@ -62,9 +62,12 @@ public static class GuiOptionsMapper
 
     public static bool IsAutoRun(string[] args) => args.Any(arg => arg.Equals("-GuiAutoRun", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>-GuiAutoRun is an internal flag for the elevated GUI. Without -Gui it is an unknown argument.</summary>
+    /// <summary>
+    /// -GuiAutoRun is an internal flag for the elevated GUI. Without -Gui it is an unknown argument.
+    /// -Help / -Version win (design 1.3), so with them -GuiAutoRun is not an error and the CLI prints help or version.
+    /// </summary>
     public static bool IsAutoRunWithoutGui(string[] args) =>
-        IsAutoRun(args) && !args.Any(arg => arg.Equals("-Gui", StringComparison.OrdinalIgnoreCase));
+        IsAutoRun(args) && !args.Any(arg => arg.Equals("-Gui", StringComparison.OrdinalIgnoreCase)) && !StartupMode.IsHelpOrVersion(args);
 
     /// <summary>
     /// Starts from the baseline and replaces only the values whose flag is present in args. Used for

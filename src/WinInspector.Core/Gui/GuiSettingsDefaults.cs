@@ -25,9 +25,10 @@ public static class GuiSettingsDefaults
         var source = configured.ConfigWarning is null ? configured : new CliOptions("All", Array.Empty<string>(), Array.Empty<string>(), null);
         var loaded = GuiSettingsJson.Load(savedText, FromConfig(source), savedUnreadable);
         var warnings = new List<string>(loaded.Warnings);
+        // A config value that the saved file overrides is not used, so its out-of-range value is not reported.
         var rounded = new List<string>();
-        if (source.UnusedDays < GuiLimits.MinUnusedDays || source.UnusedDays > GuiLimits.MaxUnusedDays) rounded.Add("unusedDays");
-        if (source.FolderDepth < GuiLimits.MinFolderDepth || source.FolderDepth > GuiLimits.MaxFolderDepth) rounded.Add("folderDepth");
+        if (!loaded.SavedNumbers.Contains("unusedDays") && (source.UnusedDays < GuiLimits.MinUnusedDays || source.UnusedDays > GuiLimits.MaxUnusedDays)) rounded.Add("unusedDays");
+        if (!loaded.SavedNumbers.Contains("folderDepth") && (source.FolderDepth < GuiLimits.MinFolderDepth || source.FolderDepth > GuiLimits.MaxFolderDepth)) rounded.Add("folderDepth");
         if (rounded.Count > 0) warnings.Add(GuiSettingsJson.RoundedMessage(rounded));
         if (configured.ConfigWarning is not null) warnings.Add(configured.ConfigWarning);
         return loaded with { Warnings = warnings };

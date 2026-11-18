@@ -10,9 +10,13 @@ public enum StartupKind { Cli, Gui }
 /// </summary>
 public static class StartupMode
 {
+    /// <summary>True when -Help, -h or -Version is present. These win over every other argument.</summary>
+    public static bool IsHelpOrVersion(string[] args) =>
+        args.Any(a => a.Equals("-Help", StringComparison.OrdinalIgnoreCase) || a.Equals("-h", StringComparison.OrdinalIgnoreCase) || a.Equals("-Version", StringComparison.OrdinalIgnoreCase));
+
     public static StartupKind Decide(string[] args, bool userInteractive, bool inputRedirected, bool outputRedirected, bool errorRedirected, bool fromArgumentsFile = false)
     {
-        if (args.Any(a => a.Equals("-Help", StringComparison.OrdinalIgnoreCase) || a.Equals("-h", StringComparison.OrdinalIgnoreCase) || a.Equals("-Version", StringComparison.OrdinalIgnoreCase)))
+        if (IsHelpOrVersion(args))
             return StartupKind.Cli;
         if (args.Any(a => a.Equals("-Gui", StringComparison.OrdinalIgnoreCase)))
             return StartupKind.Gui;

@@ -165,6 +165,45 @@ public class GuiTests
     }
 
     [Fact]
+    public void ConfigRoundingIsNotReportedWhenSavedValueWins()
+    {
+        // Config is out of range, but the saved file supplies both numbers: the config values are never used.
+        var configured = Cli(days: 99999, depth: -4);
+        var saved = "{\"schemaVersion\":1,\"unusedDays\":30,\"folderDepth\":2}";
+        var loaded = GuiSettingsDefaults.Resolve(configured, saved, false);
+        Assert.Equal(30, loaded.Settings.UnusedDays);
+        Assert.Equal(2, loaded.Settings.FolderDepth);
+        Assert.Empty(loaded.Warnings);
+    }
+
+    [Fact]
+    public void ConfigRoundingIsReportedOnlyForItemsWithoutSavedValue()
+    {
+        // Only unusedDays is saved, so the out-of-range folderDepth from config is still used and must be reported.
+        var configured = Cli(days: 99999, depth: -4);
+        var saved = "{\"schemaVersion\":1,\"unusedDays\":30}";
+        var loaded = GuiSettingsDefaults.Resolve(configured, saved, false);
+        Assert.Equal(30, loaded.Settings.UnusedDays);
+        Assert.Equal(GuiLimits.MinFolderDepth, loaded.Settings.FolderDepth);
+        Assert.Single(loaded.Warnings);
+        Assert.Contains("folderDepth", loaded.Warnings[0]);
+        Assert.DoesNotContain("unusedDays", loaded.Warnings[0]);
+    }
+
+    [Fact]
+    public void ConfigRoundingIsReportedWhenSavedFileIsCorrupt()
+    {
+        // A corrupt file is ignored entirely, so the config values are used and their rounding is reported.
+        var configured = Cli(days: 99999, depth: -4);
+        var loaded = GuiSettingsDefaults.Resolve(configured, "{ broken", false);
+        Assert.Equal(GuiLimits.MaxUnusedDays, loaded.Settings.UnusedDays);
+        Assert.Equal(GuiLimits.MinFolderDepth, loaded.Settings.FolderDepth);
+        Assert.Equal(2, loaded.Warnings.Count);
+        Assert.Contains("unusedDays", loaded.Warnings[1]);
+        Assert.Contains("folderDepth", loaded.Warnings[1]);
+    }
+
+    [Fact]
     public void BlankEntriesInListsAreRejectedPerItem()
     {
         var loaded = GuiSettingsJson.Load("{\"schemaVersion\":1,\"targets\":[\"C:\\\\\",\"\"],\"excludes\":[null]}", Baseline() with { Targets = [@"D:\Keep"] });
@@ -423,6 +462,15 @@ public class GuiTests
         Assert.True(GuiOptionsMapper.IsAutoRunWithoutGui(["-GuiAutoRun", "-Mode", "Files"]));
         Assert.False(GuiOptionsMapper.IsAutoRunWithoutGui(["-Gui", "-GuiAutoRun"]));
         Assert.False(GuiOptionsMapper.IsAutoRunWithoutGui(["-Mode", "Files"]));
+    }
+
+    [Fact]
+    public void HelpAndVersionWinOverAutoRunWithoutGui()
+    {
+        Assert.False(GuiOptionsMapper.IsAutoRunWithoutGui(["-GuiAutoRun", "-Help"]));
+        Assert.False(GuiOptionsMapper.IsAutoRunWithoutGui(["-GuiAutoRun", "-Version"]));
+        Assert.Equal(StartupKind.Cli, StartupMode.Decide(["-GuiAutoRun", "-Help"], true, false, false, false));
+        Assert.Equal(StartupKind.Cli, StartupMode.Decide(["-GuiAutoRun", "-Version"], true, false, false, false));
     }
 
     [Fact]

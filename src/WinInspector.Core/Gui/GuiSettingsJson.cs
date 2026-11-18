@@ -6,8 +6,10 @@ namespace WinInspector.Core.Gui;
 /// <summary>
 /// Result of reading the saved settings. PreserveOnSave == true means the file was written by
 /// another schema version: it must not be overwritten when the window closes.
+/// SavedNumbers lists the numeric items (unusedDays, folderDepth) whose value was taken from the saved file;
+/// the other numeric items keep the baseline value.
 /// </summary>
-public sealed record GuiLoadResult(GuiSettings Settings, IReadOnlyList<string> Warnings, bool PreserveOnSave);
+public sealed record GuiLoadResult(GuiSettings Settings, IReadOnlyList<string> Warnings, bool PreserveOnSave, IReadOnlyList<string> SavedNumbers);
 
 /// <summary>
 /// Reads and writes gui-settings.json. Parsing is done by hand on JsonDocument (no reflection) so that
@@ -28,7 +30,7 @@ public static class GuiSettingsJson
     public static GuiLoadResult Load(string? text, GuiSettings baseline, bool unreadable = false)
     {
         if (unreadable) return Corrupt(baseline);
-        if (text is null) return new GuiLoadResult(baseline, Array.Empty<string>(), false);
+        if (text is null) return new GuiLoadResult(baseline, Array.Empty<string>(), false, Array.Empty<string>());
         if (text.Length > 0 && text[0] == '﻿') text = text[1..];
         if (Encoding.UTF8.GetByteCount(text) > MaxBytes) return Corrupt(baseline);
 
@@ -47,16 +49,17 @@ public static class GuiSettingsJson
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return Corrupt(baseline);
             if (!root.TryGetProperty("schemaVersion", out var version) || !version.TryGetInt32(out var number) || number != SchemaVersion)
-                return new GuiLoadResult(baseline, [OtherVersionMessage], true);
+                return new GuiLoadResult(baseline, [OtherVersionMessage], true, Array.Empty<string>());
 
             var reset = new List<string>();
             var rounded = new List<string>();
+            var savedNumbers = new List<string>();
             var mode = ReadMode(root, baseline.Mode, reset);
             var targets = ReadTargets(root, baseline.Targets, reset);
             var excludes = ReadExcludes(root, baseline.Excludes, reset);
             var outputDir = ReadOutputDir(root, baseline.OutputDir, reset);
-            var unusedDays = ReadInt(root, "unusedDays", baseline.UnusedDays, GuiLimits.MinUnusedDays, GuiLimits.MaxUnusedDays, reset, rounded);
-            var folderDepth = ReadInt(root, "folderDepth", baseline.FolderDepth, GuiLimits.MinFolderDepth, GuiLimits.MaxFolderDepth, reset, rounded);
+            var unusedDays = ReadInt(root, "unusedDays", baseline.UnusedDays, GuiLimits.MinUnusedDays, GuiLimits.MaxUnusedDays, reset, rounded, savedNumbers);
+            var folderDepth = ReadInt(root, "folderDepth", baseline.FolderDepth, GuiLimits.MinFolderDepth, GuiLimits.MaxFolderDepth, reset, rounded, savedNumbers);
             var runAsAdministrator = ReadBool(root, "runAsAdministrator", baseline.RunAsAdministrator, reset);
             var bounds = ReadBounds(root, baseline.WindowBounds, reset);
 
@@ -64,7 +67,7 @@ public static class GuiSettingsJson
             var warnings = new List<string>();
             if (reset.Count > 0) warnings.Add("一部の設定を初期値に戻しました（" + string.Join("、", reset) + "）。");
             if (rounded.Count > 0) warnings.Add(RoundedMessage(rounded));
-            return new GuiLoadResult(settings, warnings, false);
+            return new GuiLoadResult(settings, warnings, false, savedNumbers);
         }
     }
 
@@ -116,7 +119,7 @@ public static class GuiSettingsJson
     public static string RoundedMessage(IReadOnlyList<string> names) =>
         "一部の数値を範囲内に丸めました（" + string.Join("、", names) + "）。";
 
-    private static GuiLoadResult Corrupt(GuiSettings baseline) => new(baseline, [CorruptMessage], false);
+    private static GuiLoadResult Corrupt(GuiSettings baseline) => new(baseline, [CorruptMessage], false, Array.Empty<string>());
 
     private static string ReadMode(JsonElement root, string fallback, List<string> reset)
     {
@@ -161,13 +164,14 @@ public static class GuiSettingsJson
         return fallback;
     }
 
-    private static int ReadInt(JsonElement root, string key, int fallback, int min, int max, List<string> reset, List<string> rounded)
+    private static int ReadInt(JsonElement root, string key, int fallback, int min, int max, List<string> reset, List<string> rounded, List<string> savedNumbers)
     {
         if (!root.TryGetProperty(key, out var value)) return fallback;
         if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
         {
             var clamped = Math.Clamp(number, min, max);
             if (clamped != number) rounded.Add(key);
+            savedNumbers.Add(key);
             return clamped;
         }
         reset.Add(key);
