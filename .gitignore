@@ -16,3 +16,7 @@ publish/
 
 # Pester output
 testResults.xml
+
+# Shipped executable (kept in the repo on purpose)
+!/WinInspector.exe
+!/SHA256SUMS.txt
