@@ -4,17 +4,27 @@ using System.Text.Json;
 
 var root=FindRoot(Directory.GetCurrentDirectory());
 var bannedSymbols=File.ReadAllLines(Path.Combine(root,"tools","BannedSymbols.txt")).Where(x=>x.Length>0&&!x.StartsWith('#')).ToArray();
-if(args.Contains("--self-test")){if(FindBanned("System.Net.Http.HttpClient").Count==0||FindBanned("System.IO.File.WriteAllText(\"x\",\"y\");").Count==0||!StripCommentsAndStrings("var x = Process.Start(info);").Contains("Process.Start(",StringComparison.Ordinal))throw new InvalidOperationException("Static checker failed to detect a deliberately banned sample.");Console.WriteLine("Static checker self-test passed.");return 0;}
-var allowBytes=File.ReadAllBytes(Path.Combine(root,"tools","csharp-allowlist.json"));
-var allowed=JsonDocument.Parse(allowBytes).RootElement.GetProperty("processStartAllowlist").EnumerateArray().Select(x=>x.GetString()!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+var allowDocument=JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root,"tools","csharp-allowlist.json")));
+var processContracts=ReadProcessContracts(allowDocument.RootElement);
+var streamWriterAllowed=allowDocument.RootElement.GetProperty("streamWriterAllowlist").EnumerateArray().Select(x=>x.GetString()!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+if(args.Contains("--self-test")){
+ if(FindBanned("System.Net.Http.HttpClient").Count==0||FindBanned("System.IO.File.WriteAllText(\"x\",\"y\");").Count==0||!StripCommentsAndStrings("var x = Process.Start(info);").Contains("Process.Start(",StringComparison.Ordinal))throw new InvalidOperationException("Static checker failed to detect a deliberately banned sample.");
+ var goodFolderOpener="var info = new ProcessStartInfo { FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), \"explorer.exe\"), UseShellExecute = false }; info.ArgumentList.Add(p); Process.Start(info);";
+ var badFolderOpener="var info = new ProcessStartInfo { FileName = \"x.exe\", UseShellExecute=true, Verb=\"open\" }; Process.Start(info);";
+ if(ProcessStartProblems("src/WinInspector.Windows/Process/FolderOpener.cs",goodFolderOpener,processContracts).Count!=0)throw new InvalidOperationException("Self-test: a valid FolderOpener sample was rejected.");
+ if(ProcessStartProblems("src/WinInspector.Windows/Process/FolderOpener.cs",badFolderOpener,processContracts).Count==0)throw new InvalidOperationException("Self-test: a FolderOpener sample with UseShellExecute=true and Verb was accepted.");
+ if(ProcessStartProblems("src/WinInspector.Cli/Other.cs",goodFolderOpener,processContracts).Count==0)throw new InvalidOperationException("Self-test: Process.Start outside the allowlist was accepted.");
+ if(StreamWriterProblems("src/WinInspector.Core/Gui/Sample.cs",StripCommentsAndStrings("var w = new StreamWriter(path);"),streamWriterAllowed).Count==0)throw new InvalidOperationException("Self-test: new StreamWriter outside the allowlist was accepted.");
+ if(StreamWriterProblems("src/WinInspector.Windows/Process/Elevation.cs",StripCommentsAndStrings("var w = new StreamWriter(path);"),streamWriterAllowed).Count!=0)throw new InvalidOperationException("Self-test: new StreamWriter in Elevation.cs was rejected.");
+ Console.WriteLine("Static checker self-test passed.");return 0;}
 var failures=new List<string>();
 foreach(var file in Directory.EnumerateFiles(Path.Combine(root,"src"),"*.cs",SearchOption.AllDirectories).Where(p=>!p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")&&!p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")))
 {
     var relative=Path.GetRelativePath(root,file).Replace('\\','/');var source=File.ReadAllText(file);
     var syntax=StripCommentsAndStrings(source);
     foreach(var literal in System.Text.RegularExpressions.Regex.Matches(source,"\\\"([^\\\"\\\\]|\\\\.)*\\\"").Select(x=>x.Value))if(literal.Contains("WinHttp")||literal.Contains("MSXML2")||literal.Contains("InternetExplorer.Application")||literal.Contains("WScript.Shell")||literal.Contains("Invoke-WebRequest")||literal.Contains("Win32_Product")||literal.Contains("Get-Package"))failures.Add($"Forbidden defensive string literal: {relative}: {literal}");
-    if(syntax.Contains("Process.Start(",StringComparison.Ordinal)&&!allowed.Contains(relative))failures.Add($"Process.Start outside allowlist: {relative}");
-    if(syntax.Contains("Process.Start(",StringComparison.Ordinal)&&allowed.Contains(relative)&&(!source.Contains("Environment.ProcessPath",StringComparison.Ordinal)||!source.Contains("UseShellExecute=true",StringComparison.Ordinal)||!source.Contains("Verb=\"runas\"",StringComparison.Ordinal)))failures.Add($"Elevation contract missing: {relative}");
+    failures.AddRange(ProcessStartProblems(relative,source,processContracts));
+    failures.AddRange(StreamWriterProblems(relative,syntax,streamWriterAllowed));
     foreach(var banned in FindBanned(syntax))
     {
         var outputWriter=relative=="src/WinInspector.Core/Output/OutputFileWriter.cs";
@@ -31,6 +41,35 @@ else failures.Add("WinInspector.dll was not found for the embedded exclusions ch
 if(bins.Length==0)failures.Add("No managed assemblies found; build must run before static checks.");
 if(failures.Count>0){foreach(var failure in failures)Console.Error.WriteLine(failure);return 1;}
 Console.WriteLine($"Static checks passed: {bins.Length} managed assemblies inspected; source bans and elevation allowlist verified.");return 0;
+static Dictionary<string,(string[] Requires,string[] Forbids)> ReadProcessContracts(JsonElement root)
+{
+    var contracts=new Dictionary<string,(string[] Requires,string[] Forbids)>(StringComparer.OrdinalIgnoreCase);
+    foreach(var entry in root.GetProperty("processStartAllowlist").EnumerateArray())
+    {
+        var file=entry.GetProperty("file").GetString()!;
+        var requires=entry.GetProperty("requires").EnumerateArray().Select(x=>x.GetString()!).ToArray();
+        var forbids=entry.GetProperty("forbids").EnumerateArray().Select(x=>x.GetString()!).ToArray();
+        contracts[file]=(requires,forbids);
+    }
+    return contracts;
+}
+static List<string> ProcessStartProblems(string relative,string source,IReadOnlyDictionary<string,(string[] Requires,string[] Forbids)> contracts)
+{
+    var problems=new List<string>();
+    if(!StripCommentsAndStrings(source).Contains("Process.Start(",StringComparison.Ordinal))return problems;
+    if(!contracts.TryGetValue(relative,out var contract)){problems.Add($"Process.Start outside allowlist: {relative}");return problems;}
+    foreach(var required in contract.Requires)if(!source.Contains(required,StringComparison.Ordinal))problems.Add($"Process.Start contract missing '{required}': {relative}");
+    foreach(var forbidden in contract.Forbids)if(source.Contains(forbidden,StringComparison.Ordinal))problems.Add($"Process.Start contract forbids '{forbidden}': {relative}");
+    return problems;
+}
+static List<string> StreamWriterProblems(string relative,string syntax,HashSet<string> allowed)
+{
+    var problems=new List<string>();
+    if(allowed.Contains(relative))return problems;
+    if(syntax.Contains("new StreamWriter(",StringComparison.Ordinal))problems.Add($"new StreamWriter outside allowlist: {relative}");
+    if(syntax.Contains("new FileStream(",StringComparison.Ordinal))problems.Add($"new FileStream outside allowlist: {relative}");
+    return problems;
+}
 List<string> FindBanned(string source)=>bannedSymbols.Where(x=>
 {
     var separator=x.IndexOf(':');var identifier=separator<0?x:x[(separator+1)..];

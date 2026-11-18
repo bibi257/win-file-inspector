@@ -658,3 +658,9 @@ src/WinInspector.Cli/Gui/
 | PowerShell 版と .cmd ランチャー | 変更しない |
 | オフライン保証 | 書き込みは `OutputFileWriter` のみ、`Process.Start` は Windows 層の 2 ファイルのみ（どちらも契約を静的検査で確認）、DllImport は kernel32 のみ追加利用、ネットワーク系 API は不使用 |
 | 利用者向けの文言 | すべて日本語 |
+
+---
+
+## 付記：実装時の決定（司令塔、2026-11-18）
+
+- DPI の扱いについて、本文の「マニフェストは変えません」から変更しました。WinForms 導入で解析器 WFO0003 がエラーになるため、`app.manifest` から `dpiAware` 要素だけを外し（longPathAware 等は不変）、`WinInspector.Cli.csproj` の `ApplicationHighDpiMode` を `SystemAware` に設定しました。`SetHighDpiMode(HighDpiMode.SystemAware)` の呼び出しも残しており、DPI の意味（システム DPI に追従）は従来どおりです。
