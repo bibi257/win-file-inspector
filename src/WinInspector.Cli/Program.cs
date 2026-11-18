@@ -8,9 +8,11 @@ internal static class Program
 {
  private static int Main(string[] args)
  {
-  try{if(args.Length==2&&args[0].Equals("-ArgumentsFile",StringComparison.OrdinalIgnoreCase))args=Elevation.ReadArguments(args[1]);}
+  var fromArgumentsFile=false;
+  try{if(args.Length==2&&args[0].Equals("-ArgumentsFile",StringComparison.OrdinalIgnoreCase)){args=Elevation.ReadArguments(args[1]);fromArgumentsFile=true;}}
   catch(Exception ex){Console.Error.WriteLine(ex.Message);return 1;}
-  var startup=StartupMode.Decide(args,Environment.UserInteractive,Console.IsInputRedirected,Console.IsOutputRedirected,Console.IsErrorRedirected);
+  if(GuiOptionsMapper.IsAutoRunWithoutGui(args)){Console.Error.WriteLine("不明な引数: -GuiAutoRun");return 1;}
+  var startup=StartupMode.Decide(args,Environment.UserInteractive,Console.IsInputRedirected,Console.IsOutputRedirected,Console.IsErrorRedirected,fromArgumentsFile);
   return startup==StartupKind.Gui?GuiHost.Run(args):RunCli(args);
  }
  private static int RunCli(string[] args)

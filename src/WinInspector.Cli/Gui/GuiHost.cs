@@ -49,7 +49,9 @@ internal static class GuiHost
             return 1;
         }
 
-        using var form = new MainForm(configured, initial, loaded.Warnings, loaded.PreserveOnSave, GuiOptionsMapper.IsAutoRun(args));
+        // Values given on the command line (-Gui -Mode Files, or the elevated relaunch) are saved only when a run starts (1.3, 3.4).
+        var preserveOnClose = loaded.PreserveOnSave || stripped.Length > 0;
+        using var form = new MainForm(configured, initial, loaded.Warnings, preserveOnClose, GuiOptionsMapper.IsAutoRun(args));
         System.Windows.Forms.Application.Run(form);
         return 0;
     }

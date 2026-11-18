@@ -21,9 +21,15 @@ public static class GuiSettingsDefaults
     /// <param name="savedUnreadable">True when the saved file exists but cannot be read or is too large.</param>
     public static GuiLoadResult Resolve(CliOptions configured, string? savedText, bool savedUnreadable)
     {
-        var loaded = GuiSettingsJson.Load(savedText, FromConfig(configured), savedUnreadable);
-        if (configured.ConfigWarning is null) return loaded;
-        var warnings = new List<string>(loaded.Warnings) { configured.ConfigWarning };
+        // With a config warning, config.psd1 values are not used (same as the CLI). Only the built-in defaults remain.
+        var source = configured.ConfigWarning is null ? configured : new CliOptions("All", Array.Empty<string>(), Array.Empty<string>(), null);
+        var loaded = GuiSettingsJson.Load(savedText, FromConfig(source), savedUnreadable);
+        var warnings = new List<string>(loaded.Warnings);
+        var rounded = new List<string>();
+        if (source.UnusedDays < GuiLimits.MinUnusedDays || source.UnusedDays > GuiLimits.MaxUnusedDays) rounded.Add("unusedDays");
+        if (source.FolderDepth < GuiLimits.MinFolderDepth || source.FolderDepth > GuiLimits.MaxFolderDepth) rounded.Add("folderDepth");
+        if (rounded.Count > 0) warnings.Add(GuiSettingsJson.RoundedMessage(rounded));
+        if (configured.ConfigWarning is not null) warnings.Add(configured.ConfigWarning);
         return loaded with { Warnings = warnings };
     }
 }

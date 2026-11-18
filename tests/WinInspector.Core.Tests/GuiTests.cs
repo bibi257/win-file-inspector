@@ -145,7 +145,23 @@ public class GuiTests
         var loaded = GuiSettingsJson.Load("{\"schemaVersion\":1,\"unusedDays\":99999,\"folderDepth\":-4}", Baseline());
         Assert.Equal(GuiLimits.MaxUnusedDays, loaded.Settings.UnusedDays);
         Assert.Equal(GuiLimits.MinFolderDepth, loaded.Settings.FolderDepth);
-        Assert.Empty(loaded.Warnings);
+        Assert.Single(loaded.Warnings);
+        Assert.Contains("unusedDays", loaded.Warnings[0]);
+        Assert.Contains("folderDepth", loaded.Warnings[0]);
+
+        var inRange = GuiSettingsJson.Load("{\"schemaVersion\":1,\"unusedDays\":3650,\"folderDepth\":0}", Baseline());
+        Assert.Empty(inRange.Warnings);
+    }
+
+    [Fact]
+    public void ConfigNumbersOutsideTheRangeAreRoundedWithWarning()
+    {
+        var loaded = GuiSettingsDefaults.Resolve(Cli(days: 99999, depth: -4), null, false);
+        Assert.Equal(GuiLimits.MaxUnusedDays, loaded.Settings.UnusedDays);
+        Assert.Equal(GuiLimits.MinFolderDepth, loaded.Settings.FolderDepth);
+        Assert.Single(loaded.Warnings);
+        Assert.Contains("unusedDays", loaded.Warnings[0]);
+        Assert.Contains("folderDepth", loaded.Warnings[0]);
     }
 
     [Fact]
@@ -195,9 +211,11 @@ public class GuiTests
     [Fact]
     public void ConfigWarningIsPassedThroughAndConfigValuesAreNotUsed()
     {
-        var configured = Cli(warning: "未対応の構文があります（行 3）");
+        // Config values are present but must not leak into the GUI when the config has a warning.
+        var configured = Cli(mode: "Apps", targets: [@"C:\Config"], excludes: [@"C:\Config\Skip"], output: @"E:\Cfg", days: 42, depth: 7, warning: "未対応の構文があります（行 3）");
         var loaded = GuiSettingsDefaults.Resolve(configured, null, false);
-        Assert.Contains("未対応の構文があります（行 3）", loaded.Warnings);
+        Assert.Single(loaded.Warnings);
+        Assert.Contains("未対応の構文があります（行 3）", loaded.Warnings[0]);
         AssertSame(Baseline(), loaded.Settings);
     }
 
@@ -387,6 +405,24 @@ public class GuiTests
     public void StartupDecisionCoversEveryCombination(string[] args, bool interactive, bool input, bool output, bool error, StartupKind expected)
     {
         Assert.Equal(expected, StartupMode.Decide(args, interactive, input, output, error));
+    }
+
+    [Fact]
+    public void EmptyArgumentsFileIsCliEvenWhenInteractive()
+    {
+        // -ArgumentsFile with an empty file (elevated -Elevate-only relaunch) must not open the GUI.
+        Assert.Equal(StartupKind.Cli, StartupMode.Decide([], true, false, false, false, fromArgumentsFile: true));
+        Assert.Equal(StartupKind.Gui, StartupMode.Decide([], true, false, false, false));
+        Assert.Equal(StartupKind.Gui, StartupMode.Decide(["-Gui", "-GuiAutoRun"], true, false, false, false, fromArgumentsFile: true));
+    }
+
+    [Fact]
+    public void AutoRunWithoutGuiIsAnArgumentError()
+    {
+        Assert.True(GuiOptionsMapper.IsAutoRunWithoutGui(["-GuiAutoRun"]));
+        Assert.True(GuiOptionsMapper.IsAutoRunWithoutGui(["-GuiAutoRun", "-Mode", "Files"]));
+        Assert.False(GuiOptionsMapper.IsAutoRunWithoutGui(["-Gui", "-GuiAutoRun"]));
+        Assert.False(GuiOptionsMapper.IsAutoRunWithoutGui(["-Mode", "Files"]));
     }
 
     [Fact]

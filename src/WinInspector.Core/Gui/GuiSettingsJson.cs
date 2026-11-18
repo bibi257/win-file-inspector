@@ -50,18 +50,20 @@ public static class GuiSettingsJson
                 return new GuiLoadResult(baseline, [OtherVersionMessage], true);
 
             var reset = new List<string>();
+            var rounded = new List<string>();
             var mode = ReadMode(root, baseline.Mode, reset);
             var targets = ReadTargets(root, baseline.Targets, reset);
             var excludes = ReadExcludes(root, baseline.Excludes, reset);
             var outputDir = ReadOutputDir(root, baseline.OutputDir, reset);
-            var unusedDays = ReadInt(root, "unusedDays", baseline.UnusedDays, GuiLimits.MinUnusedDays, GuiLimits.MaxUnusedDays, reset);
-            var folderDepth = ReadInt(root, "folderDepth", baseline.FolderDepth, GuiLimits.MinFolderDepth, GuiLimits.MaxFolderDepth, reset);
+            var unusedDays = ReadInt(root, "unusedDays", baseline.UnusedDays, GuiLimits.MinUnusedDays, GuiLimits.MaxUnusedDays, reset, rounded);
+            var folderDepth = ReadInt(root, "folderDepth", baseline.FolderDepth, GuiLimits.MinFolderDepth, GuiLimits.MaxFolderDepth, reset, rounded);
             var runAsAdministrator = ReadBool(root, "runAsAdministrator", baseline.RunAsAdministrator, reset);
             var bounds = ReadBounds(root, baseline.WindowBounds, reset);
 
             var settings = new GuiSettings(mode, targets, excludes, outputDir, unusedDays, folderDepth, runAsAdministrator, bounds);
             var warnings = new List<string>();
             if (reset.Count > 0) warnings.Add("一部の設定を初期値に戻しました（" + string.Join("、", reset) + "）。");
+            if (rounded.Count > 0) warnings.Add(RoundedMessage(rounded));
             return new GuiLoadResult(settings, warnings, false);
         }
     }
@@ -110,6 +112,10 @@ public static class GuiSettingsJson
         return Encoding.UTF8.GetString(buffer.ToArray());
     }
 
+    /// <summary>Warning for numbers that were moved into the GUI range. Also used for config.psd1 values (GuiSettingsDefaults).</summary>
+    public static string RoundedMessage(IReadOnlyList<string> names) =>
+        "一部の数値を範囲内に丸めました（" + string.Join("、", names) + "）。";
+
     private static GuiLoadResult Corrupt(GuiSettings baseline) => new(baseline, [CorruptMessage], false);
 
     private static string ReadMode(JsonElement root, string fallback, List<string> reset)
@@ -155,10 +161,15 @@ public static class GuiSettingsJson
         return fallback;
     }
 
-    private static int ReadInt(JsonElement root, string key, int fallback, int min, int max, List<string> reset)
+    private static int ReadInt(JsonElement root, string key, int fallback, int min, int max, List<string> reset, List<string> rounded)
     {
         if (!root.TryGetProperty(key, out var value)) return fallback;
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number)) return Math.Clamp(number, min, max);
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+        {
+            var clamped = Math.Clamp(number, min, max);
+            if (clamped != number) rounded.Add(key);
+            return clamped;
+        }
         reset.Add(key);
         return fallback;
     }

@@ -62,6 +62,10 @@ public static class GuiOptionsMapper
 
     public static bool IsAutoRun(string[] args) => args.Any(arg => arg.Equals("-GuiAutoRun", StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>-GuiAutoRun is an internal flag for the elevated GUI. Without -Gui it is an unknown argument.</summary>
+    public static bool IsAutoRunWithoutGui(string[] args) =>
+        IsAutoRun(args) && !args.Any(arg => arg.Equals("-Gui", StringComparison.OrdinalIgnoreCase));
+
     /// <summary>
     /// Starts from the baseline and replaces only the values whose flag is present in args. Used for
     /// "-Gui -Mode Files" (explicit values win over the saved ones) and for the elevated relaunch.

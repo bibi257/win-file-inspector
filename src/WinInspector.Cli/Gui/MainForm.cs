@@ -28,6 +28,8 @@ internal sealed class MainForm : Form
     private InspectionResult? _lastResult;
     private string? _lastOutputRoot;
     private WindowBounds? _bounds;
+    // The "run as administrator" value that came from the settings, not the forced value shown in an administrator session.
+    private bool _runAsAdminSaved;
 
     private readonly Label _warning = new() { AutoSize = true, ForeColor = Color.Maroon, Visible = false };
     private readonly RadioButton _modeAll = new() { Text = "すべて", AutoSize = true };
@@ -195,6 +197,7 @@ internal sealed class MainForm : Form
         _unusedDays.Value = Math.Clamp(settings.UnusedDays, GuiLimits.MinUnusedDays, GuiLimits.MaxUnusedDays);
         _folderDepth.Value = Math.Clamp(settings.FolderDepth, GuiLimits.MinFolderDepth, GuiLimits.MaxFolderDepth);
 
+        _runAsAdminSaved = settings.RunAsAdministrator;
         _runAdmin.Checked = _isAdmin || settings.RunAsAdministrator;
         _runAdmin.Text = _isAdmin ? "管理者として実行中" : "管理者として実行（Prefetch も使用の根拠にします。実行時に Windows の確認画面が出ます）";
         _outputHint.Text = "空欄は既定の出力先: " + GuiSettingsStore.DefaultOutputDir;
@@ -314,7 +317,8 @@ internal sealed class MainForm : Form
             return;
         }
 
-        if (settings.RunAsAdministrator && !_isAdmin)
+        // The elevated child (-GuiAutoRun) is already administrator; it must not ask for elevation again (UAC loop).
+        if (settings.RunAsAdministrator && !_isAdmin && !_autoRun)
         {
             RestartElevated(settings, effective);
             return;
@@ -525,7 +529,7 @@ internal sealed class MainForm : Form
             output.Length == 0 ? null : output,
             (int)_unusedDays.Value,
             (int)_folderDepth.Value,
-            _runAdmin.Checked,
+            _isAdmin ? _runAsAdminSaved : _runAdmin.Checked,
             _bounds);
     }
 
