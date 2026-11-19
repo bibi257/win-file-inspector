@@ -4,12 +4,15 @@ namespace WinInspector.Core.Settings;
 
 public static class SettingsComposition
 {
-    public static CliOptions Apply(CliOptions cli, string[] args)
+    public static CliOptions Apply(CliOptions cli, string[] args) =>
+        Apply(cli, args, Path.Combine(AppContext.BaseDirectory, "config", "config.psd1"));
+
+    /// <summary>Same as Apply(cli, args) but reads the config file at configPath (for tests and the GUI).</summary>
+    public static CliOptions Apply(CliOptions cli, string[] args, string configPath)
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "config", "config.psd1");
-        if (!File.Exists(path)) return Validate(cli);
+        if (!File.Exists(configPath)) return Validate(cli);
         PsdResult parsed;
-        try { parsed = PsdReader.Parse(File.ReadAllText(path)); }
+        try { parsed = PsdReader.Parse(File.ReadAllText(configPath)); }
         catch (IOException ex) { return cli with { ConfigWarning = "設定ファイルを読み込めません: " + ex.Message }; }
         if (parsed.Warning is not null) return cli with { ConfigWarning = parsed.Warning };
         var v = parsed.Values;
