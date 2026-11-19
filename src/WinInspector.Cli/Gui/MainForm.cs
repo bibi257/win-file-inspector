@@ -20,6 +20,8 @@ internal sealed class MainForm : Form, IMessageFilter
     // Gap around the content, the same 3px margin the earlier single TableLayoutPanel gave each group.
     private const int ContentMargin = 3;
     private const int WheelStepPixels = 48;
+    // One wheel notch as reported by Windows (WHEEL_DELTA). Smaller deltas (touchpads) are part of a notch.
+    private const int WheelDelta = 120;
     private const int WmMouseWheel = 0x020A;
 
     private readonly CliOptions _configured;
@@ -45,6 +47,8 @@ internal sealed class MainForm : Form, IMessageFilter
     private readonly TableLayoutPanel _top = new() { ColumnCount = 1, RowCount = 3 };
     private readonly GroupBox _result = new() { Text = "結果", Padding = new Padding(8) };
     private bool _laying;
+    // Wheel movement (in WheelDelta units times WheelStepPixels) that has not yet made a whole pixel of scrolling.
+    private int _wheelRemainder;
 
     private readonly Label _warning = new() { AutoSize = true, ForeColor = Color.Maroon, Visible = false };
     private readonly RadioButton _modeAll = new() { Text = "すべて", AutoSize = true };
@@ -150,11 +154,17 @@ internal sealed class MainForm : Form, IMessageFilter
             topHeight = _top.GetPreferredSize(new Size(width, 0)).Height;
             resultTop = topHeight + ContentMargin;
 
-            var top = new Rectangle(0, 0, width, topHeight);
-            var result = new Rectangle(ContentMargin, resultTop, Math.Max(0, width - 2 * ContentMargin), Math.Max(ResultMinHeight, _scroll.Height - resultTop - ContentMargin));
+            // The page size is set first: changing it can move the scroll position, and the offset must be read after that.
+            _scroll.AutoScrollMinSize = new Size(0, resultTop + ResultMinHeight + ContentMargin);
+
+            // The rectangles are in page coordinates. The child's Location is relative to the visible area, so the
+            // scroll offset is subtracted. Without it, a re-layout while scrolled (progress or elapsed time) would move
+            // the content back to the top or out of place.
+            var offset = _scroll.VerticalScroll.Value;
+            var top = new Rectangle(0, -offset, width, topHeight);
+            var result = new Rectangle(ContentMargin, resultTop - offset, Math.Max(0, width - 2 * ContentMargin), Math.Max(ResultMinHeight, _scroll.Height - resultTop - ContentMargin));
             if (_top.Bounds != top) _top.Bounds = top;
             if (_result.Bounds != result) _result.Bounds = result;
-            _scroll.AutoScrollMinSize = new Size(0, resultTop + ResultMinHeight + ContentMargin);
         }
         finally
         {
@@ -643,15 +653,19 @@ internal sealed class MainForm : Form, IMessageFilter
         var owner = Control.FromChildHandle(m.HWnd);
         if (owner is null || owner.FindForm() != this) return false;
 
+        var delta = unchecked((short)((m.WParam.ToInt64() >> 16) & 0xFFFF));
+        var up = delta > 0;
         var hovered = ControlUnderCursor();
-        if (hovered is not null && CanScrollInside(hovered))
+        if (hovered is not null && CanScrollInside(hovered, up))
         {
             m.HWnd = hovered.Handle;
             return false;
         }
 
-        var delta = unchecked((short)((m.WParam.ToInt64() >> 16) & 0xFFFF));
-        ScrollPage(-delta * WheelStepPixels / 120);
+        // A small delta is less than a pixel of this step. The rest is kept, so repeated small deltas still add up.
+        var total = -delta * WheelStepPixels + _wheelRemainder;
+        _wheelRemainder = total % WheelDelta;
+        ScrollPage(total / WheelDelta);
         return true;
     }
 
@@ -670,12 +684,31 @@ internal sealed class MainForm : Form, IMessageFilter
         }
     }
 
-    private static bool CanScrollInside(Control control) => control switch
+    /// <summary>
+    /// True when the control should take the wheel itself. A disabled control never does. A list at the end in the
+    /// wheel's direction (top when scrolling up, bottom when scrolling down) passes the wheel to the page.
+    /// </summary>
+    private static bool CanScrollInside(Control control, bool up)
     {
-        ListBox list => list.PreferredHeight > list.ClientSize.Height,
-        TextBox { Multiline: true } text => TextRenderer.MeasureText(text.Text, text.Font, new Size(text.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak).Height > text.ClientSize.Height,
-        _ => false,
-    };
+        if (!control.Enabled) return false;
+        return control switch
+        {
+            ListBox list => CanScrollList(list, up),
+            TextBox { Multiline: true } text => TextRenderer.MeasureText(text.Text, text.Font, new Size(text.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak).Height > text.ClientSize.Height,
+            _ => false,
+        };
+    }
+
+    private static bool CanScrollList(ListBox list, bool up)
+    {
+        if (list.Items.Count == 0) return false;
+        if (up) return list.TopIndex > 0;
+        var itemHeight = list.ItemHeight;
+        if (itemHeight <= 0) return false;
+        // Whole rows that fit from TopIndex. Items past them are still below the visible area.
+        var visibleRows = Math.Max(1, list.ClientSize.Height / itemHeight);
+        return list.TopIndex + visibleRows < list.Items.Count;
+    }
 
     private void ScrollPage(int pixels)
     {
