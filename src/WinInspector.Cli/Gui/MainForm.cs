@@ -12,8 +12,16 @@ namespace WinInspector.Cli.Gui;
 /// The settings window. It shows values and calls Core for every decision (validation, saving, CLI mapping).
 /// It does not decide what is valid or what to save.
 /// </summary>
-internal sealed class MainForm : Form
+internal sealed class MainForm : Form, IMessageFilter
 {
+    private static readonly Size MinimumWindow = new(640, 560);
+    // Smallest height of the result group. Below the full height the page scrolls, but the summary stays usable.
+    private const int ResultMinHeight = 240;
+    // Gap around the content, the same 3px margin the earlier single TableLayoutPanel gave each group.
+    private const int ContentMargin = 3;
+    private const int WheelStepPixels = 48;
+    private const int WmMouseWheel = 0x020A;
+
     private readonly CliOptions _configured;
     private readonly IPathProbe _probe = new WindowsPathProbe();
     private readonly bool _isAdmin = IsAdministrator();
@@ -30,6 +38,13 @@ internal sealed class MainForm : Form
     private WindowBounds? _bounds;
     // The "run as administrator" value that came from the settings, not the forced value shown in an administrator session.
     private bool _runAsAdminSaved;
+
+    // The page: _top (warning, settings, run) sits at its preferred height; _result takes the rest of the window.
+    // When the window is too short, the page scrolls instead of squeezing the content.
+    private readonly Panel _scroll = new() { Dock = DockStyle.Fill, AutoScroll = true };
+    private readonly TableLayoutPanel _top = new() { ColumnCount = 1, RowCount = 3 };
+    private readonly GroupBox _result = new() { Text = "結果", Padding = new Padding(8) };
+    private bool _laying;
 
     private readonly Label _warning = new() { AutoSize = true, ForeColor = Color.Maroon, Visible = false };
     private readonly RadioButton _modeAll = new() { Text = "すべて", AutoSize = true };
@@ -68,40 +83,83 @@ internal sealed class MainForm : Form
         _bounds = initial.WindowBounds;
 
         Text = "WinInspector";
+        MinimumSize = MinimumWindow;
         if (initial.WindowBounds is { } saved)
         {
+            // A saved position on a screen that is gone (or a smaller one now) is moved into the work area of the screen it is on.
+            var fitted = WindowPlacement.FitToWorkArea(saved, WorkAreaFor(saved), MinimumWindow.Width, MinimumWindow.Height);
             StartPosition = FormStartPosition.Manual;
-            Location = new Point(saved.X, saved.Y);
-            Size = new Size(saved.Width, saved.Height);
+            Location = new Point(fitted.X, fitted.Y);
+            Size = new Size(fitted.Width, fitted.Height);
         }
         else
         {
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(780, 860);
         }
-        MinimumSize = new Size(640, 560);
 
         BuildLayout();
         WireEvents();
+        Application.AddMessageFilter(this);
 
         _warning.Text = string.Join(Environment.NewLine, warnings);
         _warning.Visible = warnings.Count > 0;
         ApplySettings(initial);
+        LayoutContent();
+    }
+
+    /// <summary>The work area of the screen that holds the saved window (or is nearest to it), as plain integers for Core.</summary>
+    private static WindowBounds WorkAreaFor(WindowBounds saved)
+    {
+        var screen = Screen.FromRectangle(new Rectangle(saved.X, saved.Y, Math.Max(1, saved.Width), Math.Max(1, saved.Height)));
+        var area = screen.WorkingArea;
+        return new WindowBounds(area.X, area.Y, area.Width, area.Height);
     }
 
     private void BuildLayout()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.Controls.Add(_warning, 0, 0);
-        root.Controls.Add(BuildSettingsGroup(), 0, 1);
-        root.Controls.Add(BuildRunGroup(), 0, 2);
-        root.Controls.Add(BuildResultGroup(), 0, 3);
-        Controls.Add(root);
+        _top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        _top.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _top.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _top.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _top.Controls.Add(_warning, 0, 0);
+        _top.Controls.Add(BuildSettingsGroup(), 0, 1);
+        _top.Controls.Add(BuildRunGroup(), 0, 2);
+        BuildResultGroup();
+        _scroll.Controls.Add(_top);
+        _scroll.Controls.Add(_result);
+        Controls.Add(_scroll);
+    }
+
+    /// <summary>
+    /// Places the top block at its preferred height and the result group below it. The result group takes the
+    /// remaining height (the same as the earlier percent row). When that would be less than <see cref="ResultMinHeight"/>,
+    /// the result keeps that height and the page scrolls.
+    /// </summary>
+    private void LayoutContent()
+    {
+        if (_laying) return;
+        _laying = true;
+        try
+        {
+            // Full width first. If the content does not fit, the vertical scroll bar takes its width, so the content is narrower.
+            var topHeight = _top.GetPreferredSize(new Size(_scroll.Width, 0)).Height;
+            var resultTop = topHeight + ContentMargin;
+            var overflows = resultTop + ResultMinHeight + ContentMargin > _scroll.Height;
+            var width = Math.Max(0, _scroll.Width - (overflows ? SystemInformation.VerticalScrollBarWidth : 0));
+            topHeight = _top.GetPreferredSize(new Size(width, 0)).Height;
+            resultTop = topHeight + ContentMargin;
+
+            var top = new Rectangle(0, 0, width, topHeight);
+            var result = new Rectangle(ContentMargin, resultTop, Math.Max(0, width - 2 * ContentMargin), Math.Max(ResultMinHeight, _scroll.Height - resultTop - ContentMargin));
+            if (_top.Bounds != top) _top.Bounds = top;
+            if (_result.Bounds != result) _result.Bounds = result;
+            _scroll.AutoScrollMinSize = new Size(0, resultTop + ResultMinHeight + ContentMargin);
+        }
+        finally
+        {
+            _laying = false;
+        }
     }
 
     private GroupBox BuildSettingsGroup()
@@ -140,7 +198,7 @@ internal sealed class MainForm : Form
         return box;
     }
 
-    private GroupBox BuildResultGroup()
+    private void BuildResultGroup()
     {
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -151,13 +209,14 @@ internal sealed class MainForm : Form
         layout.Controls.Add(_summary, 0, 1);
         layout.Controls.Add(Flow(_openFolder, _copySummary), 0, 2);
 
-        var box = new GroupBox { Text = "結果", Dock = DockStyle.Fill, Padding = new Padding(8) };
-        box.Controls.Add(layout);
-        return box;
+        // The group's bounds are set by LayoutContent, so it does not dock.
+        _result.Controls.Add(layout);
     }
 
     private void WireEvents()
     {
+        _scroll.Resize += OnContentChanged;
+        _top.Layout += OnContentChanged;
         _modeAll.CheckedChanged += OnModeChanged;
         _modeFiles.CheckedChanged += OnModeChanged;
         _modeApps.CheckedChanged += OnModeChanged;
@@ -570,10 +629,67 @@ internal sealed class MainForm : Form
         _ => null,
     };
 
+    private void OnContentChanged(object? sender, EventArgs e) => LayoutContent();
+
+    /// <summary>
+    /// The mouse wheel goes to the focused window, so with focus on a button the page would not scroll.
+    /// This filter sends the wheel to the page, unless the control under the cursor scrolls its own content
+    /// (a list or summary with more text than fits); then that control gets the wheel.
+    /// </summary>
+    public bool PreFilterMessage(ref Message m)
+    {
+        if (m.Msg != WmMouseWheel || IsDisposed || !IsHandleCreated) return false;
+        // Only wheel messages for this window (not for a dialog or another window on this thread).
+        var owner = Control.FromChildHandle(m.HWnd);
+        if (owner is null || owner.FindForm() != this) return false;
+
+        var hovered = ControlUnderCursor();
+        if (hovered is not null && CanScrollInside(hovered))
+        {
+            m.HWnd = hovered.Handle;
+            return false;
+        }
+
+        var delta = unchecked((short)((m.WParam.ToInt64() >> 16) & 0xFFFF));
+        ScrollPage(-delta * WheelStepPixels / 120);
+        return true;
+    }
+
+    /// <summary>The deepest control under the cursor, or null when the cursor is outside this window.</summary>
+    private Control? ControlUnderCursor()
+    {
+        var point = PointToClient(Cursor.Position);
+        if (!ClientRectangle.Contains(point)) return null;
+        Control current = this;
+        while (true)
+        {
+            var child = current.GetChildAtPoint(point);
+            if (child is null || !child.Visible) return current == this ? null : current;
+            point = new Point(point.X - child.Left, point.Y - child.Top);
+            current = child;
+        }
+    }
+
+    private static bool CanScrollInside(Control control) => control switch
+    {
+        ListBox list => list.PreferredHeight > list.ClientSize.Height,
+        TextBox { Multiline: true } text => TextRenderer.MeasureText(text.Text, text.Font, new Size(text.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak).Height > text.ClientSize.Height,
+        _ => false,
+    };
+
+    private void ScrollPage(int pixels)
+    {
+        var bar = _scroll.VerticalScroll;
+        var maximum = Math.Max(0, bar.Maximum - bar.LargeChange + 1);
+        var target = Math.Clamp(bar.Value + pixels, 0, maximum);
+        if (target != bar.Value) bar.Value = target;
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
+            Application.RemoveMessageFilter(this);
             _cts?.Dispose();
             _clock.Dispose();
             _errorProvider.Dispose();
