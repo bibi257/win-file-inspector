@@ -430,6 +430,71 @@ public class GuiTests
         Assert.Equal(99, applied.UnusedDays);
     }
 
+    // --- Window placement ---
+
+    private static readonly WindowBounds PrimaryWorkArea = new(0, 0, 1920, 1040);
+
+    [Fact]
+    public void SavedWindowInsideTheWorkAreaIsUnchanged()
+    {
+        var fitted = WindowPlacement.FitToWorkArea(new WindowBounds(100, 80, 780, 860), PrimaryWorkArea, 640, 560);
+        Assert.Equal(new WindowBounds(100, 80, 780, 860), fitted);
+    }
+
+    [Fact]
+    public void WindowPastTheRightAndBottomEdgesIsMovedBackIn()
+    {
+        var fitted = WindowPlacement.FitToWorkArea(new WindowBounds(1500, 900, 780, 860), PrimaryWorkArea, 640, 560);
+        Assert.Equal(new WindowBounds(1920 - 780, 1040 - 860, 780, 860), fitted);
+    }
+
+    [Fact]
+    public void WindowPastTheLeftAndTopEdgesIsMovedToTheEdge()
+    {
+        var fitted = WindowPlacement.FitToWorkArea(new WindowBounds(-300, -50, 780, 860), PrimaryWorkArea, 640, 560);
+        Assert.Equal(new WindowBounds(0, 0, 780, 860), fitted);
+    }
+
+    [Fact]
+    public void WindowLargerThanTheWorkAreaShrinksToIt()
+    {
+        var fitted = WindowPlacement.FitToWorkArea(new WindowBounds(10, 10, 3000, 2000), PrimaryWorkArea, 640, 560);
+        Assert.Equal(new WindowBounds(0, 0, 1920, 1040), fitted);
+    }
+
+    [Fact]
+    public void WorkAreaSmallerThanTheMinimumWinsOverTheMinimum()
+    {
+        var fitted = WindowPlacement.FitToWorkArea(new WindowBounds(0, 0, 780, 860), new WindowBounds(0, 0, 500, 400), 640, 560);
+        Assert.Equal(new WindowBounds(0, 0, 500, 400), fitted);
+    }
+
+    [Fact]
+    public void SizeSmallerThanTheMinimumIsRaisedToIt()
+    {
+        var fitted = WindowPlacement.FitToWorkArea(new WindowBounds(50, 50, 300, 200), PrimaryWorkArea, 640, 560);
+        Assert.Equal(new WindowBounds(50, 50, 640, 560), fitted);
+        var corrupt = WindowPlacement.FitToWorkArea(new WindowBounds(10, 10, -5, -5), PrimaryWorkArea, 640, 560);
+        Assert.Equal(new WindowBounds(10, 10, 640, 560), corrupt);
+    }
+
+    [Fact]
+    public void SecondScreenWithNegativeCoordinatesIsRespected()
+    {
+        var secondScreen = new WindowBounds(-1920, 0, 1920, 1040);
+        Assert.Equal(new WindowBounds(-1000, 100, 780, 860), WindowPlacement.FitToWorkArea(new WindowBounds(-1000, 100, 780, 860), secondScreen, 640, 560));
+        Assert.Equal(new WindowBounds(-780, 100, 780, 860), WindowPlacement.FitToWorkArea(new WindowBounds(-100, 100, 780, 860), secondScreen, 640, 560));
+    }
+
+    [Fact]
+    public void ExtremeSavedValuesDoNotOverflow()
+    {
+        var fitted = WindowPlacement.FitToWorkArea(new WindowBounds(int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue), PrimaryWorkArea, 640, 560);
+        Assert.Equal(new WindowBounds(0, 0, 1920, 1040), fitted);
+        var negative = WindowPlacement.FitToWorkArea(new WindowBounds(int.MinValue, int.MinValue, 780, 860), PrimaryWorkArea, 640, 560);
+        Assert.Equal(new WindowBounds(0, 0, 780, 860), negative);
+    }
+
     // --- Startup, progress, defaults, throttle ---
 
     [Theory]
